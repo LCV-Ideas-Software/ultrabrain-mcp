@@ -16,7 +16,8 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
-.npmrc
+# .npmrc tracked: contains \ interpolation only (no secrets); env-var injected from STEPSECURITY_NPM_TOKEN org secret in CI.
+!.npmrc
 .ultrabrain/
 .deepseek/
 .grok/

@@ -1,37 +1,37 @@
-export type ResponseFormat = 'json' | 'markdown' | 'text';
+export type ResponseFormat = "json" | "markdown" | "text";
 
 export type ReasoningMode =
-  | 'code'
-  | 'serial'
-  | 'parallel'
-  | 'hybrid'
-  | 'critical'
-  | 'analytical'
-  | 'systematic'
-  | 'creative'
-  | 'metacognitive'
-  | 'strategic'
-  | 'dialectical'
-  | 'first_principles'
-  | 'decision_matrix'
-  | 'root_cause'
-  | 'socratic';
+  | "code"
+  | "serial"
+  | "parallel"
+  | "hybrid"
+  | "critical"
+  | "analytical"
+  | "systematic"
+  | "creative"
+  | "metacognitive"
+  | "strategic"
+  | "dialectical"
+  | "first_principles"
+  | "decision_matrix"
+  | "root_cause"
+  | "socratic";
 
 export type StepType =
-  | 'analysis'
-  | 'hypothesis'
-  | 'verification'
-  | 'conclusion'
-  | 'assumption'
-  | 'counterargument'
-  | 'synthesis'
-  | 'decision'
-  | 'implementation'
-  | 'review';
+  | "analysis"
+  | "hypothesis"
+  | "verification"
+  | "conclusion"
+  | "assumption"
+  | "counterargument"
+  | "synthesis"
+  | "decision"
+  | "implementation"
+  | "review";
 
-export type BudgetMode = 'fast' | 'balanced' | 'thorough' | 'exhaustive';
+export type BudgetMode = "fast" | "balanced" | "thorough" | "exhaustive";
 
-export type InputShape = 'snake_case' | 'camel_case' | 'mixed';
+export type InputShape = "snake_case" | "camel_case" | "mixed";
 
 export interface QualityMetrics {
   logical_consistency?: number;
@@ -85,6 +85,7 @@ export interface ThoughtInput {
 export interface ThoughtRecord extends ThoughtInput {
   id: string;
   created_at: string;
+  updated_at?: string;
   labels: string[];
   warnings: string[];
   detected_biases: string[];
@@ -97,7 +98,7 @@ export interface BrainSession {
   id: string;
   created_at: string;
   updated_at: string;
-  status: 'active' | 'completed';
+  status: "active" | "completed";
   problem?: string;
   context?: string;
   template?: string;
@@ -108,7 +109,7 @@ export interface BrainSession {
 }
 
 export interface BrainResult {
-  status: 'processed';
+  status: "processed";
   session_id: string;
   thought_number: number;
   total_thoughts: number;
@@ -157,7 +158,7 @@ export interface UpdateThoughtInput {
 
 export interface ReviewInput {
   session_id: string;
-  format: 'summary' | 'linear' | 'tree' | 'markdown' | 'json';
+  format: "summary" | "linear" | "tree" | "markdown" | "json";
   limit?: number;
 }
 
@@ -175,14 +176,18 @@ export interface AnalyzeInput {
 export interface MergeInput {
   session_id: string;
   branch_ids: string[];
-  strategy: 'synthesis' | 'best_evidence' | 'decision';
+  strategy: "synthesis" | "best_evidence" | "decision";
   create_thought?: boolean;
   response_format: ResponseFormat;
 }
 
 export interface ToolErrorPayload {
-  status: 'failed';
+  status: "failed";
   error: string;
   guidance: string;
   example: Record<string, unknown>;
+}
+
+export interface UltraBrainEngineOptions {
+  persistence_dir?: string;
 }

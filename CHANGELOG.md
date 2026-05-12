@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0 - 2026-05-12
+
+- Enforced `depth_level` and `max_depth` as positive integers, and rejected reasoning steps where depth exceeds the declared maximum.
+- Added active reference validation for `revises_thought`, `branch_from_thought`, and `parent_thought` so new steps cannot point to shifted or missing thoughts.
+- Updated `ultrabrain_update` to return the full updated record, including refreshed quality, warnings, labels, suggestions, and `updated_at`.
+- Added real markdown rendering for `ultrabrain_merge` when `response_format` is `markdown`.
+- Added optional file-backed session persistence through `ULTRABRAIN_STATE_DIR` or `ULTRABRAIN_PERSIST_DIR`; default behavior remains process-local.
+- Expanded the MCP smoke test to cover persistence reloads, update payloads, depth validation, missing-reference errors, and markdown merge output.
+- Re-audited workflows against the LCV workspace baseline and StepSecurity Harden-Runner standard.
+
 ## 1.0.0 - 2026-05-12
 
 - First publication target for `@lcv-ideas-software/ultrabrain-mcp` as public release `v01.00.00`.

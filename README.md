@@ -17,12 +17,13 @@
 
 **Install.** `npm install -g @lcv-ideas-software/ultrabrain-mcp` from npmjs.com, or `npm install -g @lcv-ideas-software/ultrabrain-mcp --registry=https://npm.pkg.github.com` from the GitHub Packages mirror.
 
-**Status.** First publication target: **v01.00.00** for npm package `1.0.0`. Public GitHub tags use the LCV display convention `v00.00.00`; npm keeps normal SemVer.
+**Status.** Latest release target: **v01.01.00** for npm package `1.1.0`. First publication started at **v01.00.00**. Public GitHub tags use the LCV display convention `v00.00.00`; npm keeps normal SemVer.
 
 ## Release
 
 | Release | Package | Date | Notes |
 | --- | --- | --- | --- |
+| `v01.01.00` | `1.1.0` | 2026-05-12 | Refinements for depth enforcement, active thought-reference validation, update record returns, real markdown merge output, optional file persistence, and expanded smoke coverage. |
 | `v01.00.00` | `1.0.0` | 2026-05-12 | First LCV Ultrabrain MCP release: branded tool surface, session lifecycle, branching, merging, validation, analysis, prompts, resources, Pages, CI, publish, and StepSecurity baseline. |
 
 ## What It Does
@@ -103,6 +104,8 @@ Use the MCP server name `ultrabrain` in host configs:
 ```
 
 Development checkout and global installation are intentionally separate. Do not create a junction or symlink from `C:\npm-global\node_modules\@lcv-ideas-software\ultrabrain-mcp` to the workspace checkout.
+
+Optional local persistence can be enabled per host with `ULTRABRAIN_STATE_DIR` or `ULTRABRAIN_PERSIST_DIR`. When unset, sessions remain process-local.
 
 ## Development
 

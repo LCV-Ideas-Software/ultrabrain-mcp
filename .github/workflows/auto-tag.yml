@@ -1,0 +1,113 @@
+name: Auto-tag on version bump
+# Organization version display convention: public tags/releases use
+# vXX.XX.XX with zero-padded numeric segments. package.json keeps npm SemVer
+# shape and may include prerelease labels; the display tag is derived from the
+# numeric base version.
+#
+# GitHub does not start a second workflow from a tag push created with
+# GITHUB_TOKEN, so this workflow explicitly dispatches publish.yml on the tag
+# ref. The npm-production environment allows v* tag refs, not main.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: auto-tag-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  auto-tag:
+    name: Create org-standard tag from package.json version
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout main with full history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+      - name: Read package.json version and compute display tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?$ ]]; then
+            echo "::error::Invalid version shape in package.json: '$VERSION'. Expected X.Y.Z or X.Y.Z-prerelease."
+            exit 1
+          fi
+          BASE="$(echo "$VERSION" | sed -E 's/-.*$//')"
+          TAG="$(echo "$BASE" | awk -F. '{ printf "v%02d.%02d.%02d", $1, $2, $3 }')"
+          LEGACY_TAG="v${VERSION}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "legacy_tag=$LEGACY_TAG" >> "$GITHUB_OUTPUT"
+          echo "Detected package version: $VERSION -> display tag: $TAG"
+      - name: Check if tag already exists
+        id: check
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          LEGACY_TAG: ${{ steps.version.outputs.legacy_tag }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag ${TAG} already exists; skipping."
+          elif git ls-remote --exit-code --tags origin "refs/tags/${LEGACY_TAG}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Legacy SemVer tag ${LEGACY_TAG} already exists for this package version; skipping."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Tag ${TAG} does not exist; it will be created."
+          fi
+      - name: Create and push tag
+        if: steps.check.outputs.exists == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "${TAG}" HEAD
+          git push origin "${TAG}"
+          echo "Created and pushed lightweight tag ${TAG}."
+      - name: Dispatch publish workflow
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          expected_sha="$(git rev-parse HEAD)"
+          for attempt in {1..10}; do
+            tag_sha="$(git ls-remote --tags origin "refs/tags/${TAG}" | awk '{print $1}')"
+            peeled_sha="$(git ls-remote --tags origin "refs/tags/${TAG}^{}" | awk '{print $1}')"
+            if [ -n "${tag_sha}" ]; then
+              if [ "${tag_sha}" = "${expected_sha}" ]; then
+                echo "Tag ${TAG} is visible on origin as a lightweight tag at ${expected_sha}."
+                break
+              fi
+              if [ "${peeled_sha}" = "${expected_sha}" ]; then
+                echo "::warning::Tag ${TAG} is annotated but peels to ${expected_sha}; proceeding for compatibility. New auto-created tags are lightweight."
+                break
+              fi
+              echo "::error::Tag ${TAG} points to ${tag_sha} (peeled: ${peeled_sha:-none}), expected ${expected_sha}; refusing to dispatch publish.yml."
+              exit 1
+            fi
+            if [ "$attempt" -eq 10 ]; then
+              echo "::error::Tag ${TAG} was not visible on origin after push; refusing to dispatch publish.yml."
+              exit 1
+            fi
+            echo "Waiting for tag ${TAG} to become visible on origin (${attempt}/10)."
+            sleep 2
+          done
+          gh workflow run publish.yml --ref "${TAG}" -f tag="${TAG}"
+          echo "Dispatched publish.yml for ${TAG}; it will publish packages and create the GitHub Release."
+    timeout-minutes: 15

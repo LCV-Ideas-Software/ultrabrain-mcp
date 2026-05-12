@@ -1,0 +1,67 @@
+name: Dependabot automerge
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  automerge:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Wait for CI success
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -euo pipefail
+          for attempt in {1..60}; do
+            state="$(gh pr view "$PR_URL" --json statusCheckRollup --jq '
+              [.statusCheckRollup[] | select(.name == "Install, check and smoke")]
+              | if length == 0 then "missing"
+                elif any(.[]; .status != "COMPLETED") then "pending"
+                elif all(.[]; .conclusion == "SUCCESS") then "success"
+                else "failure"
+                end
+            ')"
+
+            case "$state" in
+              success)
+                echo "CI is green for $PR_URL."
+                exit 0
+                ;;
+              failure)
+                echo "::error::CI failed for $PR_URL; refusing automerge."
+                exit 1
+                ;;
+              missing|pending)
+                echo "Waiting for CI ($state), attempt ${attempt}/60."
+                sleep 10
+                ;;
+              *)
+                echo "::error::Unexpected CI state: $state"
+                exit 1
+                ;;
+            esac
+          done
+
+          echo "::error::Timed out waiting for CI success."
+          exit 1
+      - name: Merge green Dependabot PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge "$PR_URL" --auto --squash --delete-branch
+    timeout-minutes: 15
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false

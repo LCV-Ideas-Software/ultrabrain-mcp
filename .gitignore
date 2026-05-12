@@ -1,0 +1,64 @@
+# Dependencies
+node_modules/
+.pnp.*
+
+# Build output
+dist/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Runtime, local config and secrets
+.env
+.env.*
+!.env.example
+.npmrc
+.ultrabrain/
+.deepseek/
+.grok/
+
+# Coverage, reports and temporary output
+coverage/
+.nyc_output/
+.cache/
+.eslintcache
+.turbo/
+.tmp/
+tmp/
+temp/
+reports/
+playwright-report/
+test-results/
+*.tsbuildinfo
+*.tgz
+*.tmp
+*.tmp.*
+*.bak
+*.orig
+
+# OS / editor artifacts
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# AI-agent local memory and private context
+.ai/
+.claude/
+.gemini/
+.cursor/
+.continue/
+.windsurf/
+AGENTS.local.md
+CLAUDE.md
+GEMINI.md
+memory/
+memories/

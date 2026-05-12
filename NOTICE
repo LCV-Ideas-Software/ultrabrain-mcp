@@ -1,0 +1,10 @@
+@lcv-ideas-software/ultrabrain-mcp
+Copyright 2026 LCV Ideas & Software
+
+Licensed under the Apache License, Version 2.0.
+
+This package is independently developed and maintained by LCV Ideas & Software.
+Ultrabrain is an LCV-created local MCP reasoning gate for structured engineering
+thought, validation, and review readiness.
+
+No external model API is called by this package.

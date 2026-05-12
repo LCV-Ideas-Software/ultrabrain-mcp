@@ -1,0 +1,67 @@
+{
+  "name": "@lcv-ideas-software/ultrabrain-mcp",
+  "version": "1.0.0",
+  "description": "LCV-branded MCP reasoning gate for structured engineering thought, validation, and review readiness.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "ultrabrain-mcp": "dist/index.js",
+    "ultrabrain": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "scripts",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "SECURITY.md",
+    "CHANGELOG.md",
+    "THIRDPARTY.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "smoke": "node scripts/smoke.mjs",
+    "test": "npm run build && npm run smoke",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "format:public": "prettier --write \"site/index.html\"",
+    "format:public:check": "prettier --check \"site/index.html\"",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "reasoning",
+    "ultrabrain",
+    "quality-gate",
+    "engineering",
+    "lcv"
+  ],
+  "author": "LCV Ideas & Software",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LCV-Ideas-Software/ultrabrain-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/LCV-Ideas-Software/ultrabrain-mcp/issues"
+  },
+  "homepage": "https://ultrabrain-mcp.lcv.dev",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "prettier": "^3.8.3",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "preferGlobal": true
+}

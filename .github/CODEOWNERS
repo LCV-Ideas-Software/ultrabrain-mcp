@@ -1,0 +1,17 @@
+# Targeted code owners for sensitive and source changes.
+
+# Agent and repository governance
+/AGENTS.md @lcv-leo
+/.ai/ @lcv-leo
+/.github/CODEOWNERS @lcv-leo
+/.github/dependabot.yml @lcv-leo
+/.github/workflows/ @lcv-leo
+
+# Application, packaging and runtime surfaces
+/dist/ @lcv-leo
+/scripts/ @lcv-leo
+/docs/ @lcv-leo
+/site/ @lcv-leo
+/package.json @lcv-leo
+/package-lock.json @lcv-leo
+/.npmignore @lcv-leo

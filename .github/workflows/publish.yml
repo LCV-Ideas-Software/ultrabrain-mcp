@@ -208,7 +208,7 @@ jobs:
       - name: Check GitHub Packages version
         id: gh-packages-version
         run: |
-          if npm view "${{ needs.gate.outputs.name }}@${{ needs.gate.outputs.version }}" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+          if npm view "${{ needs.gate.outputs.name }}@${{ needs.gate.outputs.version }}" version --registry=https://npm.pkg.github.com --@lcv-ideas-software:registry=https://npm.pkg.github.com >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "${{ needs.gate.outputs.name }}@${{ needs.gate.outputs.version }} already exists on GitHub Packages; skipping publish."
           else
@@ -219,7 +219,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish (public, with provenance)
         if: steps.gh-packages-version.outputs.exists != 'true'
-        run: npm publish --registry=https://npm.pkg.github.com --access public --provenance --tag "${{ needs.gate.outputs.dist_tag }}"
+        run: npm publish --registry=https://npm.pkg.github.com --@lcv-ideas-software:registry=https://npm.pkg.github.com --access public --provenance --tag "${{ needs.gate.outputs.dist_tag }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     timeout-minutes: 60

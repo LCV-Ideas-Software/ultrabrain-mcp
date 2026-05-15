@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.1.1 - 2026-05-15
+
+**Patch — 4-gate quality directive compliance.** Adds `@biomejs/biome` ^2.4.15 + `biome.json` aligned with prettier conventions (lineWidth 100, indent space 2, double quotes, trailing commas all, semicolons always). New `npm run biome` + `npm run biome:write` scripts scoped to `src/` and `scripts/`. CI workflow runs `npm run biome` between `npm ci` and `npm test`.
+
+### Added
+
+- `@biomejs/biome` (^2.4.15) devDep + `biome.json` config.
+- `npm run biome` (check-only) + `npm run biome:write` (auto-fix) scripts.
+- CI workflow runs biome between install and smoke.
+
+### Changed
+
+- `src/engine.ts` + `src/normalize.ts` + minor source files: cosmetic formatting + unused-import cleanup from `biome --write` and `biome --write --unsafe` (no semantic changes).
+- `SERVER_VERSION` in `src/index.ts` synced to `1.1.1`.
+
 ## 1.1.0 - 2026-05-12
 
 - Enforced `depth_level` and `max_depth` as positive integers, and rejected reasoning steps where depth exceeds the declared maximum.

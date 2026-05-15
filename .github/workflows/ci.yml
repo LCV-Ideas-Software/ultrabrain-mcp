@@ -29,6 +29,8 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
+      - name: Biome (lint + format)
+        run: npm run biome
       - name: Verify
         run: npm test
     timeout-minutes: 30

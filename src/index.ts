@@ -6,13 +6,13 @@ import {
   ErrorCode,
   GetPromptRequestSchema,
   ListPromptsRequestSchema,
-  ListResourceTemplatesRequestSchema,
   ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
   ListToolsRequestSchema,
   McpError,
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { UltraBrainEngine, formatResult, TEMPLATES } from "./engine.js";
+import { formatResult, TEMPLATES, UltraBrainEngine } from "./engine.js";
 import {
   normalizeAnalyzeInput,
   normalizeMergeInput,
@@ -30,7 +30,7 @@ import {
 import type { ResponseFormat, ToolErrorPayload } from "./types.js";
 
 const SERVER_NAME = "ultrabrain-mcp";
-const SERVER_VERSION = "1.1.0";
+const SERVER_VERSION = "1.1.1";
 
 const engine = new UltraBrainEngine({
   persistence_dir: process.env.ULTRABRAIN_STATE_DIR ?? process.env.ULTRABRAIN_PERSIST_DIR,

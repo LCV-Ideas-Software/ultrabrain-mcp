@@ -1,3 +1,13 @@
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { join, resolve } from "node:path";
 import type {
   AnalyzeInput,
   BrainResult,
@@ -13,16 +23,6 @@ import type {
   UpdateThoughtInput,
   ValidateInput,
 } from "./types.js";
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { join, resolve } from "node:path";
 
 const MAX_SESSION_THOUGHTS = 300;
 const MAX_BRANCH_THOUGHTS = 100;

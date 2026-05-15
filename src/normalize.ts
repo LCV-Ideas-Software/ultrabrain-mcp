@@ -5,11 +5,8 @@ import type {
   InputShape,
   MergeInput,
   QualityMetrics,
-  ReasoningMode,
-  ResponseFormat,
   ReviewInput,
   StartSessionInput,
-  StepType,
   ThoughtInput,
   UpdateThoughtInput,
   ValidateInput,
@@ -454,15 +451,15 @@ function validateMetrics(metrics: QualityMetrics): void {
 function hasAnyUpdate(input: UpdateThoughtInput): boolean {
   return Boolean(
     input.thought ||
-    input.confidence !== undefined ||
-    input.evidence ||
-    input.assumptions ||
-    input.open_questions ||
-    input.alternatives ||
-    input.risks ||
-    input.next_actions ||
-    input.quality_metrics ||
-    input.tags,
+      input.confidence !== undefined ||
+      input.evidence ||
+      input.assumptions ||
+      input.open_questions ||
+      input.alternatives ||
+      input.risks ||
+      input.next_actions ||
+      input.quality_metrics ||
+      input.tags,
   );
 }
 

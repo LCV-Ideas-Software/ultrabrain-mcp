@@ -1,6 +1,6 @@
 {
   "name": "@lcv-ideas-software/ultrabrain-mcp",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "LCV-branded MCP reasoning gate for structured engineering thought, validation, and review readiness.",
   "type": "module",
   "main": "dist/index.js",
@@ -24,6 +24,8 @@
     "smoke": "node scripts/smoke.mjs",
     "test": "npm run build && npm run smoke",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "biome": "biome check src scripts",
+    "biome:write": "biome check --write src scripts",
     "format:public": "prettier --write \"site/index.html\"",
     "format:public:check": "prettier --check \"site/index.html\"",
     "start": "node dist/index.js",
@@ -53,6 +55,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
     "@types/node": "^25.6.0",
     "prettier": "^3.8.3",
     "typescript": "^6.0.3"

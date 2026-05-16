@@ -21,9 +21,9 @@
 
 ## Release
 
-| Release | Package | Date | Notes |
-| --- | --- | --- | --- |
-| `v01.01.00` | `1.1.0` | 2026-05-12 | Refinements for depth enforcement, active thought-reference validation, update record returns, real markdown merge output, optional file persistence, and expanded smoke coverage. |
+| Release     | Package | Date       | Notes                                                                                                                                                                                   |
+| ----------- | ------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `v01.01.00` | `1.1.0` | 2026-05-12 | Refinements for depth enforcement, active thought-reference validation, update record returns, real markdown merge output, optional file persistence, and expanded smoke coverage.      |
 | `v01.00.00` | `1.0.0` | 2026-05-12 | First LCV Ultrabrain MCP release: branded tool surface, session lifecycle, branching, merging, validation, analysis, prompts, resources, Pages, CI, publish, and StepSecurity baseline. |
 
 ## What It Does
@@ -40,22 +40,22 @@ The server does not call external LLM APIs. It is a local MCP reasoning scratchp
 
 ## Tools
 
-| Tool | Purpose |
-| --- | --- |
-| `ultrabrain_start` | Create a reasoning session and optionally seed the first thought. |
-| `ultrabrain_think` | Append the canonical Ultrabrain reasoning step. |
-| `ultrabrain_update` | Strengthen an existing thought with evidence, risks, confidence, or metrics. |
-| `ultrabrain_branch` | Create or continue an alternative reasoning path. |
-| `ultrabrain_merge` | Merge branch insights into a synthesis, best-evidence path, or decision. |
-| `ultrabrain_validate` | Check evidence, alternatives, verification, bias, and closure gaps. |
-| `ultrabrain_analyze` | Summarize quality, confidence, labels, bias counts, and recommendations. |
-| `ultrabrain_review` | Render a session as summary, linear chain, tree, markdown, or JSON. |
-| `ultrabrain_status` | Show session state, thought count, branches, and latest quality score. |
-| `ultrabrain_history` | Return recent thought records. |
-| `ultrabrain_export` | Export a session as markdown, text, or JSON. |
-| `ultrabrain_metrics` | Return aggregate session and reasoning metrics. |
-| `ultrabrain_templates` | List built-in LCV engineering reasoning templates. |
-| `ultrabrain_reset` | Clear one session or all in-memory sessions. |
+| Tool                   | Purpose                                                                      |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| `ultrabrain_start`     | Create a reasoning session and optionally seed the first thought.            |
+| `ultrabrain_think`     | Append the canonical Ultrabrain reasoning step.                              |
+| `ultrabrain_update`    | Strengthen an existing thought with evidence, risks, confidence, or metrics. |
+| `ultrabrain_branch`    | Create or continue an alternative reasoning path.                            |
+| `ultrabrain_merge`     | Merge branch insights into a synthesis, best-evidence path, or decision.     |
+| `ultrabrain_validate`  | Check evidence, alternatives, verification, bias, and closure gaps.          |
+| `ultrabrain_analyze`   | Summarize quality, confidence, labels, bias counts, and recommendations.     |
+| `ultrabrain_review`    | Render a session as summary, linear chain, tree, markdown, or JSON.          |
+| `ultrabrain_status`    | Show session state, thought count, branches, and latest quality score.       |
+| `ultrabrain_history`   | Return recent thought records.                                               |
+| `ultrabrain_export`    | Export a session as markdown, text, or JSON.                                 |
+| `ultrabrain_metrics`   | Return aggregate session and reasoning metrics.                              |
+| `ultrabrain_templates` | List built-in LCV engineering reasoning templates.                           |
+| `ultrabrain_reset`     | Clear one session or all in-memory sessions.                                 |
 
 ## Canonical Example
 

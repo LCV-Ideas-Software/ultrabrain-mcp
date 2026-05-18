@@ -148,17 +148,8 @@ jobs:
           PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
         run: |
           set -euo pipefail
-          REGISTRY_PATH="$(node -e "process.stdout.write(encodeURIComponent(process.env.PACKAGE_NAME))")"
-          URL="https://registry.npmjs.org/${REGISTRY_PATH}"
           for attempt in {1..12}; do
-            if curl -fsS "$URL" | node -e '
-              let data = "";
-              process.stdin.on("data", (chunk) => { data += chunk; });
-              process.stdin.on("end", () => {
-                const pkg = JSON.parse(data);
-                process.exit(pkg.versions && pkg.versions[process.env.PACKAGE_VERSION] ? 0 : 1);
-              });
-            '; then
+            if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
               echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is publicly visible on npmjs.com."
               exit 0
             fi
@@ -250,7 +241,7 @@ jobs:
           See CHANGELOG.md for the release history.
           EOF
       - name: Publish GitHub Release
-        uses: step-security/action-gh-release@dc29ef0d1f6f9a032a97ec797d9cb7ea788dde41 # v2.6.1
+        uses: step-security/action-gh-release@277bfa82abcfdb73e5bbb19e213fd76532ee2be5 # v3.0.0
         with:
           tag_name: ${{ needs.gate.outputs.tag }}
           name: ${{ needs.gate.outputs.display_tag }}

@@ -148,17 +148,8 @@ jobs:
           PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
         run: |
           set -euo pipefail
-          REGISTRY_PATH="$(node -e "process.stdout.write(encodeURIComponent(process.env.PACKAGE_NAME))")"
-          URL="https://registry.npmjs.org/${REGISTRY_PATH}"
           for attempt in {1..12}; do
-            if curl -fsS "$URL" | node -e '
-              let data = "";
-              process.stdin.on("data", (chunk) => { data += chunk; });
-              process.stdin.on("end", () => {
-                const pkg = JSON.parse(data);
-                process.exit(pkg.versions && pkg.versions[process.env.PACKAGE_VERSION] ? 0 : 1);
-              });
-            '; then
+            if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
               echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is publicly visible on npmjs.com."
               exit 0
             fi

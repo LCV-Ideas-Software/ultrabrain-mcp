@@ -137,10 +137,10 @@ See [docs/research-matrix.md](./docs/research-matrix.md). Ultrabrain imports ide
 
 ## Links
 
-- Site: <https://ultrabrain-mcp.lcv.dev>
-- npmjs.com: <https://www.npmjs.com/package/@lcv-ideas-software/ultrabrain-mcp>
-- GitHub: <https://github.com/LCV-Ideas-Software/ultrabrain-mcp>
-- Sponsors: <https://github.com/sponsors/LCV-Ideas-Software>
+- Site: [https://ultrabrain-mcp.lcv.dev](https://ultrabrain-mcp.lcv.dev)
+- npmjs.com: [https://www.npmjs.com/package/@lcv-ideas-software/ultrabrain-mcp](https://www.npmjs.com/package/@lcv-ideas-software/ultrabrain-mcp)
+- GitHub: [https://github.com/LCV-Ideas-Software/ultrabrain-mcp](https://github.com/LCV-Ideas-Software/ultrabrain-mcp)
+- Sponsors: [https://github.com/sponsors/LCV-Ideas-Software](https://github.com/sponsors/LCV-Ideas-Software)
 
 ## License
 
@@ -148,4 +148,4 @@ Apache-2.0. See [LICENSE](./LICENSE), [NOTICE](./NOTICE), and [THIRDPARTY](./THI
 
 ---
 
-<p align="center"><span style="font-size: 1.5em;"><strong>© LCV Ideas &amp; Software</strong></span><br><sub>LEONARDO CARDOZO VARGAS TECNOLOGIA DA INFORMACAO LTDA<br>Rua Pais Leme, 215 Conj 1713&nbsp;&nbsp;- Pinheiros<br>São Paulo - SP<br>CEP 05.424-150<br>CNPJ: 66.584.678/0001-77<br>IM 05.424-150</sub></p>
+<p align="center"><span style="font-size: 1.5em;"><strong>© LCV Ideas &amp; Software</strong></span><br><sub>LEONARDO CARDOZO VARGAS TECNOLOGIA DA INFORMACAO LTDA<br>Rua Pais Leme, 215 Conj 1713 - Pinheiros<br>São Paulo - SP<br>CEP 05.424-150<br>CNPJ: 66.584.678/0001-77<br>IM 05.424-150</sub></p>

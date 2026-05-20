@@ -19,7 +19,9 @@
 
 **Status.** Latest release target: **v01.01.00** for npm package `1.1.0`. First publication started at **v01.00.00**. Public GitHub tags use the LCV display convention `v00.00.00`; npm keeps normal SemVer.
 
-## Release
+## Change History
+
+The version history at a glance:
 
 | Release     | Package | Date       | Notes                                                                                                                                                                                   |
 | ----------- | ------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -144,6 +146,6 @@ See [docs/research-matrix.md](./docs/research-matrix.md). Ultrabrain imports ide
 
 Apache-2.0. See [LICENSE](./LICENSE), [NOTICE](./NOTICE), and [THIRDPARTY](./THIRDPARTY.md).
 
-<p align="center">
-  Built by <a href="https://github.com/LCV-Ideas-Software">LCV Ideas &amp; Software</a>.
-</p>
+---
+
+<p align="center"><span style="font-size: 1.5em;"><strong>© LCV Ideas &amp; Software</strong></span><br><sub>LEONARDO CARDOZO VARGAS TECNOLOGIA DA INFORMACAO LTDA<br>Rua Pais Leme, 215 Conj 1713&nbsp;&nbsp;- Pinheiros<br>São Paulo - SP<br>CEP 05.424-150<br>CNPJ: 66.584.678/0001-77<br>IM 05.424-150</sub></p>

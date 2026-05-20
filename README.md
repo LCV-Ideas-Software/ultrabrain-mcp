@@ -9,15 +9,18 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/LCV-Ideas-Software/ultrabrain-mcp/releases"><img alt="release" src="https://img.shields.io/github/v/release/LCV-Ideas-Software/ultrabrain-mcp?sort=semver" /></a>
   <a href="https://www.npmjs.com/package/@lcv-ideas-software/ultrabrain-mcp"><img alt="npm" src="https://img.shields.io/npm/v/@lcv-ideas-software/ultrabrain-mcp.svg" /></a>
   <a href="https://github.com/LCV-Ideas-Software/ultrabrain-mcp/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/LCV-Ideas-Software/ultrabrain-mcp/actions/workflows/ci.yml/badge.svg" /></a>
+  <a href="https://github.com/LCV-Ideas-Software/ultrabrain-mcp/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/LCV-Ideas-Software/ultrabrain-mcp/actions/workflows/codeql.yml/badge.svg" /></a>
+  <a href="https://github.com/LCV-Ideas-Software/ultrabrain-mcp/actions/workflows/publish.yml"><img alt="Publish" src="https://github.com/LCV-Ideas-Software/ultrabrain-mcp/actions/workflows/publish.yml/badge.svg" /></a>
   <a href="https://ultrabrain-mcp.lcv.dev"><img alt="site" src="https://img.shields.io/badge/site-ultrabrain--mcp.lcv.dev-0f766e.svg" /></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-green.svg" /></a>
 </p>
 
 **Install.** `npm install -g @lcv-ideas-software/ultrabrain-mcp` from npmjs.com, or `npm install -g @lcv-ideas-software/ultrabrain-mcp --registry=https://npm.pkg.github.com` from the GitHub Packages mirror.
 
-**Status.** Latest release target: **v01.01.00** for npm package `1.1.0`. First publication started at **v01.00.00**. Public GitHub tags use the LCV display convention `v00.00.00`; npm keeps normal SemVer.
+**Status.** Latest release target: **v01.01.01** for npm package `1.1.1`. First publication started at **v01.00.00**. Public GitHub tags use the LCV display convention `v00.00.00`; npm keeps normal SemVer.
 
 ## Change History
 
@@ -25,6 +28,7 @@ The version history at a glance:
 
 | Release     | Package | Date       | Notes                                                                                                                                                                                   |
 | ----------- | ------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `v01.01.01` | `1.1.1` | 2026-05-15 | 4-gate quality directive compliance: added Biome, aligned CI, applied cosmetic source cleanup, and synchronized SERVER_VERSION to `1.1.1`. |
 | `v01.01.00` | `1.1.0` | 2026-05-12 | Refinements for depth enforcement, active thought-reference validation, update record returns, real markdown merge output, optional file persistence, and expanded smoke coverage.      |
 | `v01.00.00` | `1.0.0` | 2026-05-12 | First LCV Ultrabrain MCP release: branded tool surface, session lifecycle, branching, merging, validation, analysis, prompts, resources, Pages, CI, publish, and StepSecurity baseline. |
 
@@ -134,6 +138,17 @@ This repository follows the LCV package baseline:
 ## Research
 
 See [docs/research-matrix.md](./docs/research-matrix.md). Ultrabrain imports ideas only at the architecture level. It does not copy third-party code, text, branding, non-English localization strings, or external model/API behavior.
+
+## Repository conventions
+
+- **License**: [Apache-2.0](./LICENSE). See [NOTICE](./NOTICE) and [THIRDPARTY](./THIRDPARTY.md).
+- **Security disclosure**: see [SECURITY.md](./SECURITY.md).
+- **Code of conduct**: see [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
+- **Changelog**: [CHANGELOG.md](./CHANGELOG.md).
+- **Contributing**: see [CONTRIBUTING.md](./CONTRIBUTING.md).
+- **Sponsorship**: see the repo's `Sponsor` button or [central sponsor page](https://www.lcv.dev/sponsor).
+- **Action pinning**: all GitHub Actions are pinned by full SHA per supply-chain hardening baseline.
+- **Code owners**: [.github/CODEOWNERS](.github/CODEOWNERS).
 
 ## Links
 

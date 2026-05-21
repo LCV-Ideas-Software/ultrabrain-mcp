@@ -20,7 +20,9 @@
 
 **Install.** `npm install -g @lcv-ideas-software/ultrabrain-mcp` from npmjs.com, or `npm install -g @lcv-ideas-software/ultrabrain-mcp --registry=https://npm.pkg.github.com` from the GitHub Packages mirror.
 
-**Status.** Latest release target: **v01.01.01** for npm package `1.1.1`. First publication started at **v01.00.00**. Public GitHub tags use the LCV display convention `v00.00.00`; npm keeps normal SemVer.
+**Status.** Stable. Current release: **v01.01.01** (npm package `1.1.1`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
+
+First publication started at **v01.00.00**. Public GitHub tags use the LCV display convention `v00.00.00`; npm keeps normal SemVer.
 
 ## Change History
 

@@ -66,7 +66,7 @@ export const TEMPLATES = [
 
 export class UltraBrainEngine {
   private readonly sessions = new Map<string, BrainSession>();
-  private readonly persistenceDir?: string;
+  private readonly persistenceDir: string | undefined;
 
   constructor(options: UltraBrainEngineOptions = {}) {
     const persistenceDir = options.persistence_dir?.trim();
@@ -352,8 +352,11 @@ export class UltraBrainEngine {
     if (missing.length) {
       throw new Error(`Unknown branch id(s): ${missing.join(", ")}`);
     }
-    const branchThoughts = input.branch_ids.flatMap((id) => session.branches[id]);
+    const branchThoughts = input.branch_ids.flatMap((id) => session.branches[id] ?? []);
     const best = [...branchThoughts].sort((a, b) => b.quality_score - a.quality_score)[0];
+    if (!best) {
+      throw new Error("Selected branches do not contain thoughts to merge.");
+    }
     const synthesis = this.buildMergeSynthesis(input, branchThoughts, best);
     const mergeId = input.branch_ids.join("+");
     session.merged_branches[mergeId] = synthesis;

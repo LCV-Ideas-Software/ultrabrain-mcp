@@ -1,8 +1,8 @@
-# ultrabrain-mcp
-
 <p align="center">
-  <img src="./.github/assets/lcv-ideas-software-logo.svg" alt="LCV Ideas & Software" width="88" />
+  <img src=".github/assets/lcv-ideas-software-logo.svg" alt="LCV Ideas &amp; Software" width="520" />
 </p>
+
+# ultrabrain-mcp
 
 <p align="center">
   <strong>LCV's local MCP reasoning gate for structured engineering thought.</strong>

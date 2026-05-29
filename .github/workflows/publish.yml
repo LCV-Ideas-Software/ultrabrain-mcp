@@ -60,12 +60,14 @@ jobs:
       - name: Resolve release metadata
         id: meta
         shell: bash
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
           NAME="$(node -p "require('./package.json').name")"
           DISPLAY_TAG="$(echo "${VERSION%%-*}" | awk -F. '{ printf "v%02d.%02d.%02d", $1, $2, $3 }')"
-          TAG="${{ github.event.inputs.tag }}"
+          TAG="$INPUT_TAG"
           if [ -z "$TAG" ] && [[ "$GITHUB_REF" == refs/tags/* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
           fi
@@ -131,17 +133,22 @@ jobs:
           JS
       - name: Check npmjs.com package version
         id: npmjs-version
+        env:
+          PACKAGE_NAME: ${{ needs.gate.outputs.name }}
+          PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
         run: |
-          if npm view "${{ needs.gate.outputs.name }}@${{ needs.gate.outputs.version }}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "${{ needs.gate.outputs.name }}@${{ needs.gate.outputs.version }} already exists on npmjs.com; skipping publish."
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already exists on npmjs.com; skipping publish."
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "${{ needs.gate.outputs.name }}@${{ needs.gate.outputs.version }} is not published on npmjs.com yet."
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is not published on npmjs.com yet."
           fi
       - name: Publish (public, with provenance)
         if: steps.npmjs-version.outputs.exists != 'true'
-        run: npm publish --registry=https://registry.npmjs.org --access public --provenance --tag "${{ needs.gate.outputs.dist_tag }}"
+        env:
+          DIST_TAG: ${{ needs.gate.outputs.dist_tag }}
+        run: npm publish --registry=https://registry.npmjs.org --access public --provenance --tag "$DIST_TAG"
       - name: Verify npmjs.com public visibility
         env:
           PACKAGE_NAME: ${{ needs.gate.outputs.name }}
@@ -198,21 +205,24 @@ jobs:
           npm config get @lcv-ideas-software:registry
       - name: Check GitHub Packages version
         id: gh-packages-version
+        env:
+          PACKAGE_NAME: ${{ needs.gate.outputs.name }}
+          PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if npm view "${{ needs.gate.outputs.name }}@${{ needs.gate.outputs.version }}" version --registry=https://npm.pkg.github.com --@lcv-ideas-software:registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry=https://npm.pkg.github.com --@lcv-ideas-software:registry=https://npm.pkg.github.com >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "${{ needs.gate.outputs.name }}@${{ needs.gate.outputs.version }} already exists on GitHub Packages; skipping publish."
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already exists on GitHub Packages; skipping publish."
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "${{ needs.gate.outputs.name }}@${{ needs.gate.outputs.version }} is not published on GitHub Packages yet."
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is not published on GitHub Packages yet."
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish (public, with provenance)
         if: steps.gh-packages-version.outputs.exists != 'true'
-        run: npm publish --registry=https://npm.pkg.github.com --@lcv-ideas-software:registry=https://npm.pkg.github.com --access public --provenance --tag "${{ needs.gate.outputs.dist_tag }}"
         env:
+          DIST_TAG: ${{ needs.gate.outputs.dist_tag }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm publish --registry=https://npm.pkg.github.com --@lcv-ideas-software:registry=https://npm.pkg.github.com --access public --provenance --tag "$DIST_TAG"
     timeout-minutes: 60
   github-release:
     name: Create GitHub Release
@@ -231,11 +241,14 @@ jobs:
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
       - name: Create release notes
+        env:
+          PACKAGE_NAME: ${{ needs.gate.outputs.name }}
+          PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
         run: |
-          cat > release-notes.md <<'EOF'
+          cat > release-notes.md <<EOF
           Published package:
 
-          - npmjs.com: https://www.npmjs.com/package/${{ needs.gate.outputs.name }}/v/${{ needs.gate.outputs.version }}
+          - npmjs.com: https://www.npmjs.com/package/${PACKAGE_NAME}/v/${PACKAGE_VERSION}
           - GitHub Packages: https://github.com/LCV-Ideas-Software/ultrabrain-mcp/packages
 
           See CHANGELOG.md for the release history.

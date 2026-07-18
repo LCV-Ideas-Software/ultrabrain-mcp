@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
+const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 const stateDir = mkdtempSync(join(tmpdir(), "ultrabrain-smoke-"));
 
 function cleanEnv() {
@@ -62,6 +63,16 @@ try {
   for (const forbidden of forbiddenPublicNames) {
     assert.ok(!names.includes(forbidden), "legacy public tool name must not be exposed");
   }
+
+  // Version parity: the server must report the same version as package.json.
+  const serverInfo = client.getServerVersion();
+  assert.equal(serverInfo?.version, pkg.version, "server version must match package.json");
+
+  // Unknown tools must surface as a JSON-RPC protocol error, not an in-band result.
+  await assert.rejects(
+    client.callTool({ name: "ultrabrain_does_not_exist", arguments: {} }),
+    "unknown tool must reject at the protocol level",
+  );
 
   const started = await client.callTool({
     name: "ultrabrain_start",

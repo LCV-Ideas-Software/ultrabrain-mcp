@@ -295,12 +295,13 @@ const tools = [
         next_actions: { type: "array", items: { type: "string" } },
         quality_metrics: thoughtProperties.quality_metrics,
         tags: { type: "array", items: { type: "string" } },
+        response_format: responseFormatProperty,
       },
       required: ["thought_number"],
     },
     annotations: {
       readOnlyHint: false,
-      destructiveHint: false,
+      destructiveHint: true,
       idempotentHint: false,
       openWorldHint: false,
     },
@@ -686,6 +687,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
     throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
   } catch (error) {
+    // Protocol-level errors (e.g. unknown tool) must surface as JSON-RPC errors,
+    // not as an in-band tool result the caller cannot distinguish from a failure.
+    if (error instanceof McpError) {
+      throw error;
+    }
     return errorResponse(error);
   }
 });
@@ -816,6 +822,14 @@ function formatValue(value: unknown): string {
     return String(value);
   }
   return JSON.stringify(value);
+}
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    // Session state is persisted synchronously on every mutation, so a clean exit
+    // needs no flush; just close the transport and leave a non-torn state dir.
+    void server.close().finally(() => process.exit(0));
+  });
 }
 
 const transport = new StdioServerTransport();

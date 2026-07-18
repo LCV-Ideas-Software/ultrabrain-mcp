@@ -3,7 +3,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  rmSync,
+  renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -14,6 +14,7 @@ import type {
   BrainSession,
   MergeInput,
   QualityMetrics,
+  RelatedThought,
   ResponseFormat,
   ReviewInput,
   StartSessionInput,
@@ -26,6 +27,8 @@ import type {
 
 const MAX_SESSION_THOUGHTS = 300;
 const MAX_BRANCH_THOUGHTS = 100;
+const MAX_SESSION_ID_LENGTH = 128;
+const RESERVED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 export const TEMPLATES = [
   {
@@ -79,6 +82,7 @@ export class UltraBrainEngine {
 
   start(input: StartSessionInput): Record<string, unknown> {
     const sessionId = input.session_id ?? createSessionId();
+    assertValidSessionId(sessionId);
     if (this.sessions.has(sessionId)) {
       throw new Error(`Session ${sessionId} already exists.`);
     }
@@ -155,6 +159,7 @@ export class UltraBrainEngine {
       rewritten_thought: rewrittenThought === input.thought ? undefined : rewrittenThought,
     };
 
+    const relatedThoughts = findRelated(session, input);
     session.thoughts.push(record);
     trimRecordList(session.thoughts, MAX_SESSION_THOUGHTS);
 
@@ -165,9 +170,7 @@ export class UltraBrainEngine {
       session.branches[record.branch_id] = branch;
     }
 
-    if (!record.next_thought_needed) {
-      session.status = "completed";
-    }
+    session.status = record.next_thought_needed ? "active" : "completed";
     session.updated_at = now;
     this.persistSession(session);
 
@@ -180,6 +183,7 @@ export class UltraBrainEngine {
       thought_history_length: session.thoughts.length,
       branches: Object.keys(session.branches),
       quality_score: qualityScore,
+      related_thoughts: relatedThoughts.length ? relatedThoughts : undefined,
       confidence: record.confidence,
       budget: {
         mode: record.budget_mode ?? "balanced",
@@ -199,7 +203,17 @@ export class UltraBrainEngine {
     if (!list) {
       throw new Error(`Branch ${input.branch_id} does not exist.`);
     }
-    const record = list.find((thought) => thought.thought_number === input.thought_number);
+    // Without a branch_id, target the main-chain record: session.thoughts also
+    // holds branch records, so match the most recent thought with that number
+    // that does not belong to a branch.
+    const record = input.branch_id
+      ? list.find((thought) => thought.thought_number === input.thought_number)
+      : [...list]
+          .reverse()
+          .find(
+            (thought) =>
+              thought.thought_number === input.thought_number && thought.branch_id === undefined,
+          );
     if (!record) {
       throw new Error(`Thought ${input.thought_number} was not found.`);
     }
@@ -260,7 +274,10 @@ export class UltraBrainEngine {
         .join("\n");
     }
     if (input.format === "markdown") {
-      return this.export(session.id, "markdown");
+      return this.export(session.id, "markdown", input.limit);
+    }
+    if (input.format === "mermaid") {
+      return renderMermaid(session, thoughts);
     }
     return renderSummary(session, thoughts);
   }
@@ -302,6 +319,13 @@ export class UltraBrainEngine {
       issues.push("Strict validation expects at least three distinct step types.");
     }
 
+    const templateCoverage = this.templateCoverage(session, thoughts);
+    if (templateCoverage && input.strict && templateCoverage.uncovered.length) {
+      issues.push(
+        `Template ${templateCoverage.template} stages not yet covered: ${templateCoverage.uncovered.join(", ")}.`,
+      );
+    }
+
     return {
       status: issues.length ? "needs_work" : "valid",
       session_id: session.id,
@@ -310,8 +334,37 @@ export class UltraBrainEngine {
       strength_count: strengths.length,
       issues,
       strengths,
+      template_coverage: templateCoverage,
       metrics: this.metrics(session.id),
     };
+  }
+
+  private templateCoverage(
+    session: BrainSession,
+    thoughts: ThoughtRecord[],
+  ): { template: string; covered: string[]; uncovered: string[] } | undefined {
+    const template = this.resolveTemplate(session.template);
+    if (!template) {
+      return undefined;
+    }
+    // A stage counts as covered when a thought's step_type or one of its tags
+    // matches the stage name (slugged), so declared template stages stop being
+    // decorative metadata and become a real closure checklist.
+    const marks = new Set<string>();
+    for (const thought of thoughts) {
+      if (thought.step_type) {
+        marks.add(slug(thought.step_type));
+      }
+      for (const tag of thought.tags ?? []) {
+        marks.add(slug(tag));
+      }
+    }
+    const covered: string[] = [];
+    const uncovered: string[] = [];
+    for (const stage of template.stages) {
+      (marks.has(slug(stage)) ? covered : uncovered).push(stage);
+    }
+    return { template: template.id, covered, uncovered };
   }
 
   analyze(input: AnalyzeInput): Record<string, unknown> {
@@ -348,7 +401,11 @@ export class UltraBrainEngine {
 
   merge(input: MergeInput): Record<string, unknown> {
     const session = this.requireSession(input.session_id);
-    const missing = input.branch_ids.filter((id) => !session.branches[id]);
+    const reserved = input.branch_ids.filter((id) => RESERVED_KEYS.has(id));
+    if (reserved.length) {
+      throw new Error(`branch_ids must not include reserved object keys: ${reserved.join(", ")}`);
+    }
+    const missing = input.branch_ids.filter((id) => !Object.hasOwn(session.branches, id));
     if (missing.length) {
       throw new Error(`Unknown branch id(s): ${missing.join(", ")}`);
     }
@@ -363,7 +420,11 @@ export class UltraBrainEngine {
 
     let createdThought: ThoughtRecord | undefined;
     if (input.create_thought) {
-      const nextNumber = (session.thoughts.at(-1)?.thought_number ?? 0) + 1;
+      const maxNumber = session.thoughts.reduce(
+        (max, thought) => Math.max(max, thought.thought_number),
+        0,
+      );
+      const nextNumber = maxNumber + 1;
       const result = this.process({
         session_id: session.id,
         response_format: input.response_format,
@@ -420,14 +481,19 @@ export class UltraBrainEngine {
 
   reset(sessionId = "default", allSessions = false): Record<string, unknown> {
     if (allSessions) {
-      const removed = this.sessions.size;
+      const ids = Array.from(this.sessions.keys());
       this.sessions.clear();
-      this.deletePersistedSessions();
-      return { status: "reset", all_sessions: true, removed_sessions: removed };
+      // Only remove files this engine is responsible for; leave foreign .json files intact.
+      for (const id of ids) {
+        this.deletePersistedSession(id);
+      }
+      return { status: "reset", all_sessions: true, removed_sessions: ids.length };
     }
-    const existed = this.sessions.delete(sessionId);
+    const existed = this.sessions.has(sessionId);
     if (existed) {
+      // Delete the file first so a failed unlink keeps memory and disk consistent (retryable).
       this.deletePersistedSession(sessionId);
+      this.sessions.delete(sessionId);
     }
     return { status: "reset", session_id: sessionId, existed };
   }
@@ -446,18 +512,19 @@ export class UltraBrainEngine {
     };
   }
 
-  export(sessionId = "default", format: ResponseFormat = "markdown"): string {
+  export(sessionId = "default", format: ResponseFormat = "markdown", limit?: number): string {
     const session = this.sessions.get(sessionId);
     if (!session) {
       return format === "json"
         ? JSON.stringify({ session_id: sessionId, thoughts: [] }, null, 2)
         : `Session ${sessionId} has no thoughts.`;
     }
+    const thoughts = this.limitedThoughts(session, limit);
     if (format === "json") {
-      return JSON.stringify(session, null, 2);
+      return JSON.stringify(limit === undefined ? session : { ...session, thoughts }, null, 2);
     }
     if (format === "text") {
-      return session.thoughts
+      return thoughts
         .map((thought) => `${thought.thought_number}/${thought.total_thoughts}: ${thought.thought}`)
         .join("\n");
     }
@@ -475,7 +542,7 @@ export class UltraBrainEngine {
       "## Thoughts",
       "",
     ].filter((line): line is string => line !== undefined);
-    for (const thought of session.thoughts) {
+    for (const thought of thoughts) {
       lines.push(`### ${thought.thought_number}/${thought.total_thoughts}`);
       lines.push("");
       lines.push(thought.thought);
@@ -567,6 +634,7 @@ export class UltraBrainEngine {
     if (existing) {
       return existing;
     }
+    assertValidSessionId(sessionId);
     const now = new Date().toISOString();
     const session: BrainSession = {
       id: sessionId,
@@ -591,6 +659,11 @@ export class UltraBrainEngine {
   }
 
   private validateReferences(input: ThoughtInput, session: BrainSession): void {
+    if (input.branch_id !== undefined && RESERVED_KEYS.has(input.branch_id)) {
+      throw new Error(
+        "branch_id must not be a reserved object key (__proto__, constructor, prototype).",
+      );
+    }
     if (input.revises_thought !== undefined && !hasActiveThought(session, input.revises_thought)) {
       throw new Error("revises_thought/revisesThought must reference an existing active thought.");
     }
@@ -776,7 +849,8 @@ export class UltraBrainEngine {
 
   private rewriteThought(thought: string): string {
     return thought
-      .replace(/\s+/g, " ")
+      .replace(/[^\S\n]+/g, " ")
+      .replace(/ *\n */g, "\n")
       .replace(/\bcan't\b/gi, "cannot")
       .replace(/\bwon't\b/gi, "will not")
       .replace(/\bdoesn't\b/gi, "does not")
@@ -842,14 +916,31 @@ export class UltraBrainEngine {
         continue;
       }
       const path = join(this.persistenceDir, file);
+      const expectedId = safeDecode(file.slice(0, -".json".length));
+      let parsed: unknown;
       try {
-        const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-        if (isBrainSession(parsed)) {
-          this.sessions.set(parsed.id, parsed);
-        }
+        parsed = JSON.parse(readFileSync(path, "utf8"));
       } catch {
-        // Ignore corrupt session files so one bad transcript does not block MCP startup.
+        // A torn or hand-corrupted file: quarantine it instead of destroying it silently.
+        this.quarantineCorruptFile(path);
+        continue;
       }
+      // Reject shape mismatches and filename/id mismatches so a stray file cannot
+      // resurrect as a phantom session that reset() by id can never remove.
+      if (!isBrainSession(parsed) || parsed.id !== expectedId) {
+        this.quarantineCorruptFile(path);
+        continue;
+      }
+      relinkBranches(parsed);
+      this.sessions.set(parsed.id, parsed);
+    }
+  }
+
+  private quarantineCorruptFile(path: string): void {
+    try {
+      renameSync(path, `${path}.corrupt-${Date.now()}`);
+    } catch {
+      // Best effort: if it cannot be renamed, leave it and continue startup.
     }
   }
 
@@ -858,7 +949,12 @@ export class UltraBrainEngine {
       return;
     }
     mkdirSync(this.persistenceDir, { recursive: true });
-    writeFileSync(this.sessionPath(session.id), `${JSON.stringify(session, null, 2)}\n`, "utf8");
+    const target = this.sessionPath(session.id);
+    const tmp = `${target}.tmp`;
+    // Write to a temp file then rename: rename is atomic on the same volume, so a
+    // crash cannot leave a torn target that the loader would discard.
+    writeFileSync(tmp, `${JSON.stringify(session, null, 2)}\n`, "utf8");
+    renameSync(tmp, target);
   }
 
   private deletePersistedSession(sessionId: string): void {
@@ -868,17 +964,6 @@ export class UltraBrainEngine {
     const path = this.sessionPath(sessionId);
     if (existsSync(path)) {
       unlinkSync(path);
-    }
-  }
-
-  private deletePersistedSessions(): void {
-    if (!this.persistenceDir || !existsSync(this.persistenceDir)) {
-      return;
-    }
-    for (const file of readdirSync(this.persistenceDir)) {
-      if (file.endsWith(".json")) {
-        rmSync(join(this.persistenceDir, file), { force: true });
-      }
     }
   }
 
@@ -925,7 +1010,7 @@ export function formatResult(result: BrainResult, format = result.record.respons
   return `${labels}${result.record.thought}\n\n${metadata}`;
 }
 
-function toJsonPayload(result: BrainResult): Record<string, unknown> {
+export function toJsonPayload(result: BrainResult): Record<string, unknown> {
   return {
     status: result.status,
     session_id: result.session_id,
@@ -935,6 +1020,7 @@ function toJsonPayload(result: BrainResult): Record<string, unknown> {
     thought_history_length: result.thought_history_length,
     branches: result.branches,
     quality_score: result.quality_score,
+    related_thoughts: result.related_thoughts,
     confidence: result.confidence,
     budget: result.budget,
     labels: result.labels,
@@ -969,7 +1055,7 @@ function countBy(values: string[]): Record<string, number> {
 }
 
 function nearProgressCheckpoint(thoughtNumber: number, totalThoughts: number): boolean {
-  if (totalThoughts < 4) {
+  if (totalThoughts < 4 || thoughtNumber <= 1) {
     return false;
   }
   const progress = thoughtNumber / totalThoughts;
@@ -1018,11 +1104,55 @@ function renderTree(session: BrainSession, thoughts: ThoughtRecord[]): string {
   return lines.join("\n");
 }
 
-function trimRecordList(records: ThoughtRecord[], max: number): void {
+function renderMermaid(session: BrainSession, thoughts: ThoughtRecord[]): string {
+  const windowIds = new Set(thoughts.map((thought) => thought.id));
+  const mainChain = thoughts.filter((thought) => thought.branch_id === undefined);
+  const lines = ["graph TD"];
+  for (const thought of mainChain) {
+    lines.push(
+      `  T${thought.thought_number}["${mermaidLabel(`${thought.thought_number}/${thought.total_thoughts} ${thought.step_type ?? "analysis"}`)}"]`,
+    );
+  }
+  for (let i = 1; i < mainChain.length; i++) {
+    lines.push(
+      `  T${(mainChain[i - 1] as ThoughtRecord).thought_number} --> T${(mainChain[i] as ThoughtRecord).thought_number}`,
+    );
+  }
+  for (const [branchId, records] of Object.entries(session.branches)) {
+    const safe = mermaidId(branchId);
+    for (const record of records) {
+      if (!windowIds.has(record.id)) {
+        continue;
+      }
+      const node = `${safe}_${record.thought_number}`;
+      lines.push(
+        `  ${node}["${mermaidLabel(`${branchId} ${record.thought_number}/${record.total_thoughts}`)}"]`,
+      );
+      if (record.branch_from_thought !== undefined) {
+        lines.push(`  T${record.branch_from_thought} --> ${node}`);
+      }
+    }
+  }
+  return lines.join("\n");
+}
+
+function mermaidLabel(value: string): string {
+  return value.replace(/"/g, "'").replace(/\s+/g, " ").slice(0, 80);
+}
+
+function mermaidId(value: string): string {
+  const safe = value.replace(/[^A-Za-z0-9_]/g, "_");
+  return /^[A-Za-z_]/.test(safe) ? safe : `b_${safe}`;
+}
+
+export function trimRecordList(records: ThoughtRecord[], max: number): void {
   while (records.length > max) {
     const protectedThoughts = referencedThoughtNumbers(records);
+    // Never drop the most recent record (the one just added); only trim older,
+    // unreferenced history. If nothing older is removable, keep the list over cap.
     const removableIndex = records.findIndex(
-      (record) => !protectedThoughts.has(record.thought_number),
+      (record, index) =>
+        index < records.length - 1 && !protectedThoughts.has(record.thought_number),
     );
     if (removableIndex === -1) {
       break;
@@ -1051,6 +1181,33 @@ function hasActiveThought(session: BrainSession, thoughtNumber: number): boolean
   return session.thoughts.some((thought) => thought.thought_number === thoughtNumber);
 }
 
+function findRelated(session: BrainSession, input: ThoughtInput, max = 3): RelatedThought[] {
+  const inputTags = new Set(input.tags ?? []);
+  const scored: Array<{ related: RelatedThought; score: number }> = [];
+  for (const prior of session.thoughts) {
+    if (prior.thought_number === input.thought_number && prior.branch_id === input.branch_id) {
+      continue;
+    }
+    const sharedTags = (prior.tags ?? []).filter((tag) => inputTags.has(tag));
+    const stepMatch = input.step_type !== undefined && prior.step_type === input.step_type ? 2 : 0;
+    const score = stepMatch + sharedTags.length;
+    if (score > 0) {
+      scored.push({
+        related: {
+          thought_number: prior.thought_number,
+          step_type: prior.step_type,
+          shared_tags: sharedTags,
+        },
+        score,
+      });
+    }
+  }
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, max)
+    .map((entry) => entry.related);
+}
+
 function isBrainSession(value: unknown): value is BrainSession {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
@@ -1063,9 +1220,58 @@ function isBrainSession(value: unknown): value is BrainSession {
     (candidate.status === "active" || candidate.status === "completed") &&
     Array.isArray(candidate.tags) &&
     Array.isArray(candidate.thoughts) &&
+    candidate.thoughts.every(isThoughtRecord) &&
     Boolean(candidate.branches) &&
     typeof candidate.branches === "object" &&
     Boolean(candidate.merged_branches) &&
     typeof candidate.merged_branches === "object"
   );
+}
+
+function isThoughtRecord(value: unknown): value is ThoughtRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Partial<ThoughtRecord>;
+  // Guard the fields that engine consumers dereference without optional checks
+  // (labels/warnings/detected_biases/suggestions arrays and a numeric quality_score),
+  // so a hand-corrupted record cannot crash validate/analyze/metrics/export later.
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.thought === "string" &&
+    typeof candidate.thought_number === "number" &&
+    typeof candidate.quality_score === "number" &&
+    Array.isArray(candidate.labels) &&
+    Array.isArray(candidate.warnings) &&
+    Array.isArray(candidate.detected_biases) &&
+    Array.isArray(candidate.suggestions)
+  );
+}
+
+function relinkBranches(session: BrainSession): void {
+  // A persisted session serializes each branch record twice (once under thoughts,
+  // once under branches). After JSON.parse they are independent copies; re-point the
+  // branch entries at the canonical thoughts-list object so a single update mutates
+  // both views, as it does in memory.
+  const byId = new Map(session.thoughts.map((thought) => [thought.id, thought]));
+  for (const branchId of Object.keys(session.branches)) {
+    const records = session.branches[branchId];
+    if (records) {
+      session.branches[branchId] = records.map((record) => byId.get(record.id) ?? record);
+    }
+  }
+}
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function assertValidSessionId(sessionId: string): void {
+  if (sessionId.length > MAX_SESSION_ID_LENGTH) {
+    throw new Error(`session_id must be at most ${MAX_SESSION_ID_LENGTH} characters.`);
+  }
 }

@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.2.0 - 2026-07-17
+
+**Minor — audit remediation: correctness cluster, a unit-test layer, and Tier-1 reasoning-gate features.** Outcome of a multi-agent audit and cross-review. Adds a `vitest` unit suite alongside the existing smoke integration test, fixes the confirmed correctness findings (each covered by a red-then-green test), and lands additive Tier-1 features. No public tool was removed or renamed.
+
+### Added
+
+- `vitest` dev dependency + `test/` unit suite; `npm test` now runs build + unit + smoke, and a `prepare` script builds `dist/` on git-URL installs.
+- `ultrabrain_review` gains a `mermaid` format that renders the thought/branch graph.
+- `ultrabrain_validate` reports template stage coverage (covered vs uncovered) and flags uncovered stages under strict mode.
+- `ultrabrain_think` surfaces `related_thoughts` (ranked by step_type match and tag overlap) and front-loads a concise reasoning protocol in its tool description.
+- JSON-shaped tool results now carry `structuredContent` alongside the text block.
+- CI runs on Windows + Linux across Node 22 and 24; the publish workflow asserts the tag matches the package version; the smoke test asserts server/package version parity and that unknown tools reject.
+
+### Fixed
+
+- Persistence: branch/thought record identity is re-linked on load (updates no longer diverge across a restart); session writes are atomic (temp + rename); unparseable or filename/id-mismatched files are quarantined instead of silently discarded or resurrected; malformed thought records are rejected on load.
+- State/validation: `ultrabrain_update` without a branch id targets the main chain; reserved object keys are rejected as branch ids; `ultrabrain_update` enforces the text cap and metric range; enum values are accepted case-insensitively; `ultrabrain_start` validates the seeded chain; session status reverts to active; merge numbering uses the max thought number; trimming never discards the newest record; `ultrabrain_reset all_sessions` only deletes engine-created files and single reset is transactional; session ids are length-bounded; unknown tools surface as JSON-RPC protocol errors.
+- Robustness/rendering: SIGINT/SIGTERM graceful shutdown; `ultrabrain_update` annotated `destructiveHint:true`; the progress checkpoint no longer fires on the first thought; `rewriteThought` preserves newlines; `ultrabrain_review` markdown honors `limit`.
+
 ## 1.1.1 - 2026-05-15
 
 **Patch — 4-gate quality directive compliance.** Adds `@biomejs/biome` ^2.4.15 + `biome.json` aligned with prettier conventions (lineWidth 100, indent space 2, double quotes, trailing commas all, semicolons always). New `npm run biome` + `npm run biome:write` scripts scoped to `src/` and `scripts/`. CI workflow runs `npm run biome` between `npm ci` and `npm test`.

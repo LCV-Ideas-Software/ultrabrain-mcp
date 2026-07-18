@@ -16,7 +16,7 @@ const MAX_TEXT_LENGTH = 20000;
 export const DEFAULT_SESSION_ID = "default";
 
 const responseFormatSchema = z.enum(["json", "markdown", "text"]);
-const reviewFormatSchema = z.enum(["summary", "linear", "tree", "markdown", "json"]);
+const reviewFormatSchema = z.enum(["summary", "linear", "tree", "markdown", "json", "mermaid"]);
 const mergeStrategySchema = z.enum(["synthesis", "best_evidence", "decision"]);
 const reasoningModeSchema = z.enum([
   "code",
@@ -110,8 +110,12 @@ export function asStringArray(value: unknown): string[] | undefined {
 }
 
 function parseEnum<T extends string>(schema: z.ZodType<T>, value: unknown, fallback: T): T {
-  const parsed = schema.safeParse(value);
+  const parsed = schema.safeParse(lowerIfString(value));
   return parsed.success ? parsed.data : fallback;
+}
+
+function lowerIfString(value: unknown): unknown {
+  return typeof value === "string" ? value.toLowerCase() : value;
 }
 
 function detectInputShape(raw: Record<string, unknown>): InputShape {
@@ -242,14 +246,22 @@ export function normalizeStartInput(args: unknown): StartSessionInput {
   if (!problem) {
     throw new Error("problem is required and must be a non-empty string.");
   }
+  const totalThoughts = asNumber(pick(raw, "total_thoughts", "totalThoughts"));
+  if (totalThoughts !== undefined && (!Number.isInteger(totalThoughts) || totalThoughts < 1)) {
+    throw new Error("total_thoughts/totalThoughts must be a positive integer.");
+  }
+  const initialThought = asString(pick(raw, "initial_thought", "initialThought"));
+  if (initialThought && initialThought.length > MAX_TEXT_LENGTH) {
+    throw new Error(`initial_thought exceeds ${MAX_TEXT_LENGTH} characters.`);
+  }
   return {
     session_id: asString(pick(raw, "session_id", "sessionId")),
     problem,
     context: asString(pick(raw, "context")),
     template: asString(pick(raw, "template")),
     tags: asStringArray(pick(raw, "tags")),
-    initial_thought: asString(pick(raw, "initial_thought", "initialThought")),
-    total_thoughts: asNumber(pick(raw, "total_thoughts", "totalThoughts")),
+    initial_thought: initialThought,
+    total_thoughts: totalThoughts,
     response_format: parseEnum(
       responseFormatSchema,
       pick(raw, "response_format", "responseFormat"),
@@ -268,11 +280,19 @@ export function normalizeUpdateInput(args: unknown): UpdateThoughtInput {
   if (confidence !== undefined && (confidence < 0 || confidence > 1)) {
     throw new Error("confidence must be between 0 and 1.");
   }
+  const thought = asString(pick(raw, "thought"));
+  if (thought && thought.length > MAX_TEXT_LENGTH) {
+    throw new Error(`thought exceeds ${MAX_TEXT_LENGTH} characters.`);
+  }
+  const qualityMetrics = normalizeQualityMetrics(pick(raw, "quality_metrics", "qualityMetrics"));
+  if (qualityMetrics) {
+    validateMetrics(qualityMetrics);
+  }
   const input: UpdateThoughtInput = {
     session_id: asString(pick(raw, "session_id", "sessionId")) ?? DEFAULT_SESSION_ID,
     thought_number: thoughtNumber,
     branch_id: asString(pick(raw, "branch_id", "branchId")),
-    thought: asString(pick(raw, "thought")),
+    thought,
     confidence,
     evidence: asStringArray(pick(raw, "evidence")),
     assumptions: asStringArray(pick(raw, "assumptions")),
@@ -280,7 +300,7 @@ export function normalizeUpdateInput(args: unknown): UpdateThoughtInput {
     alternatives: asStringArray(pick(raw, "alternatives")),
     risks: asStringArray(pick(raw, "risks")),
     next_actions: asStringArray(pick(raw, "next_actions", "nextActions")),
-    quality_metrics: normalizeQualityMetrics(pick(raw, "quality_metrics", "qualityMetrics")),
+    quality_metrics: qualityMetrics,
     tags: asStringArray(pick(raw, "tags")),
   };
   if (!hasAnyUpdate(input)) {
@@ -381,7 +401,7 @@ function parseOptionalEnum<T extends string>(schema: z.ZodType<T>, value: unknow
   if (value === undefined) {
     return undefined;
   }
-  const parsed = schema.safeParse(value);
+  const parsed = schema.safeParse(lowerIfString(value));
   return parsed.success ? parsed.data : undefined;
 }
 

@@ -20,7 +20,7 @@
 
 **Install.** `npm install -g @lcv-ideas-software/ultrabrain-mcp` from npmjs.com, or `npm install -g @lcv-ideas-software/ultrabrain-mcp --registry=https://npm.pkg.github.com` from the GitHub Packages mirror.
 
-**Status.** Stable. Current release: **v01.01.01** (npm package `1.1.1`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
+**Status.** Stable. Current release: **v01.02.00** (npm package `1.2.0`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
 
 First publication started at **v01.00.00**. Public GitHub tags use the LCV display convention `v00.00.00`; npm keeps normal SemVer.
 
@@ -30,6 +30,7 @@ The version history at a glance:
 
 | Release     | Package | Date       | Notes                                                                                                                                                                                   |
 | ----------- | ------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `v01.02.00` | `1.2.0` | 2026-07-17 | Audit remediation: correctness cluster (persistence, state machine, validation, protocol), a `vitest` unit-test layer, and Tier-1 features (mermaid review, template coverage, related thoughts, structuredContent). |
 | `v01.01.01` | `1.1.1` | 2026-05-15 | 4-gate quality directive compliance: added Biome, aligned CI, applied cosmetic source cleanup, and synchronized SERVER_VERSION to `1.1.1`. |
 | `v01.01.00` | `1.1.0` | 2026-05-12 | Refinements for depth enforcement, active thought-reference validation, update record returns, real markdown merge output, optional file persistence, and expanded smoke coverage.      |
 | `v01.00.00` | `1.0.0` | 2026-05-12 | First LCV Ultrabrain MCP release: branded tool surface, session lifecycle, branching, merging, validation, analysis, prompts, resources, Pages, CI, publish, and StepSecurity baseline. |
@@ -57,13 +58,13 @@ The server does not call external LLM APIs. It is a local MCP reasoning scratchp
 | `ultrabrain_merge`     | Merge branch insights into a synthesis, best-evidence path, or decision.     |
 | `ultrabrain_validate`  | Check evidence, alternatives, verification, bias, and closure gaps.          |
 | `ultrabrain_analyze`   | Summarize quality, confidence, labels, bias counts, and recommendations.     |
-| `ultrabrain_review`    | Render a session as summary, linear chain, tree, markdown, or JSON.          |
+| `ultrabrain_review`    | Render a session as summary, linear chain, tree, markdown, JSON, or Mermaid. |
 | `ultrabrain_status`    | Show session state, thought count, branches, and latest quality score.       |
 | `ultrabrain_history`   | Return recent thought records.                                               |
 | `ultrabrain_export`    | Export a session as markdown, text, or JSON.                                 |
 | `ultrabrain_metrics`   | Return aggregate session and reasoning metrics.                              |
 | `ultrabrain_templates` | List built-in LCV engineering reasoning templates.                           |
-| `ultrabrain_reset`     | Clear one session or all in-memory sessions.                                 |
+| `ultrabrain_reset`     | Clear one session, or all sessions, removing their persisted files too.      |
 
 ## Canonical Example
 

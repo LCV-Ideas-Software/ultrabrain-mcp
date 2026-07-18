@@ -12,7 +12,7 @@ import {
   McpError,
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { formatResult, TEMPLATES, UltraBrainEngine } from "./engine.js";
+import { formatResult, TEMPLATES, toJsonPayload, UltraBrainEngine } from "./engine.js";
 import {
   normalizeAnalyzeInput,
   normalizeMergeInput,
@@ -30,7 +30,7 @@ import {
 import type { ResponseFormat, ToolErrorPayload } from "./types.js";
 
 const SERVER_NAME = "ultrabrain-mcp";
-const SERVER_VERSION = "1.1.1";
+const SERVER_VERSION = "1.2.0";
 
 const engine = new UltraBrainEngine({
   persistence_dir: process.env.ULTRABRAIN_STATE_DIR ?? process.env.ULTRABRAIN_PERSIST_DIR,
@@ -261,7 +261,7 @@ const tools = [
     name: "ultrabrain_think",
     title: "Ultrabrain Think",
     description:
-      "Canonical LCV reasoning gate for code work, branching, revisions, quality metrics, bias checks, confidence, and meta checkpoints.",
+      "Canonical LCV reasoning gate for code work, branching, revisions, quality metrics, bias checks, confidence, and meta checkpoints. Protocol: state evidence and assumptions before conclusions; set step_type honestly (analysis, hypothesis, verification, conclusion...); attach evidence[] for any factual claim; branch when a materially different path exists and revise when an earlier step was wrong; adjust total_thoughts when scope changes instead of forcing a fit; only set next_thought_needed to false once a verification step has checked the conclusion. Close each step by asking: what am I missing or need to reconsider?",
     inputSchema: {
       type: "object",
       properties: thoughtProperties,
@@ -295,12 +295,13 @@ const tools = [
         next_actions: { type: "array", items: { type: "string" } },
         quality_metrics: thoughtProperties.quality_metrics,
         tags: { type: "array", items: { type: "string" } },
+        response_format: responseFormatProperty,
       },
       required: ["thought_number"],
     },
     annotations: {
       readOnlyHint: false,
-      destructiveHint: false,
+      destructiveHint: true,
       idempotentHint: false,
       openWorldHint: false,
     },
@@ -401,7 +402,10 @@ const tools = [
       type: "object",
       properties: {
         session_id: sessionIdProperty,
-        format: { type: "string", enum: ["summary", "linear", "tree", "markdown", "json"] },
+        format: {
+          type: "string",
+          enum: ["summary", "linear", "tree", "markdown", "json", "mermaid"],
+        },
         limit: { type: "number" },
       },
     },
@@ -637,7 +641,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       if (name === "ultrabrain_branch" && (!input.branch_id || !input.branch_from_thought)) {
         throw new Error("ultrabrain_branch requires branch_id and branch_from_thought.");
       }
-      return textResponse(formatResult(engine.process(input)));
+      const result = engine.process(input);
+      return {
+        ...textResponse(formatResult(result)),
+        structuredContent: toJsonPayload(result),
+      };
     }
     if (name === "ultrabrain_update") {
       return objectResponse(engine.update(normalizeUpdateInput(args)), readResponseFormat(args));
@@ -686,6 +694,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
     throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
   } catch (error) {
+    // Protocol-level errors (e.g. unknown tool) must surface as JSON-RPC errors,
+    // not as an in-band tool result the caller cannot distinguish from a failure.
+    if (error instanceof McpError) {
+      throw error;
+    }
     return errorResponse(error);
   }
 });
@@ -702,7 +715,13 @@ function textResponse(text: string) {
 }
 
 function jsonResponse(payload: unknown) {
-  return textResponse(JSON.stringify(payload, null, 2));
+  const result = textResponse(JSON.stringify(payload, null, 2));
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    // Surface the same object as structuredContent so spec-aware hosts get typed
+    // data without re-parsing JSON out of the text block.
+    return { ...result, structuredContent: payload as Record<string, unknown> };
+  }
+  return result;
 }
 
 function objectResponse(payload: Record<string, unknown>, format: ResponseFormat) {
@@ -710,7 +729,7 @@ function objectResponse(payload: Record<string, unknown>, format: ResponseFormat
     return jsonResponse(payload);
   }
   const lines = Object.entries(payload).map(([key, value]) => `${key}: ${formatValue(value)}`);
-  return textResponse(lines.join("\n"));
+  return { ...textResponse(lines.join("\n")), structuredContent: payload };
 }
 
 function formatMergeResult(payload: Record<string, unknown>): string {
@@ -816,6 +835,14 @@ function formatValue(value: unknown): string {
     return String(value);
   }
   return JSON.stringify(value);
+}
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    // Session state is persisted synchronously on every mutation, so a clean exit
+    // needs no flush; just close the transport and leave a non-torn state dir.
+    void server.close().finally(() => process.exit(0));
+  });
 }
 
 const transport = new StdioServerTransport();

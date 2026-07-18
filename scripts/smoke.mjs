@@ -124,6 +124,7 @@ try {
   assert.equal(canonicalPayload.status, "processed");
   assert.equal(canonicalPayload.session_id, "smoke");
   assert.equal(canonicalPayload.thought_number, 2);
+  assert.equal(canonical.structuredContent?.status, "processed", "think returns structuredContent");
   assert.ok(canonicalPayload.record.labels.includes("depth:2"));
   assert.ok(canonicalPayload.record.labels.includes("expected-output"));
 

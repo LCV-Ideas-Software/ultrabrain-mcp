@@ -14,6 +14,7 @@ import type {
   BrainSession,
   MergeInput,
   QualityMetrics,
+  RelatedThought,
   ResponseFormat,
   ReviewInput,
   StartSessionInput,
@@ -158,6 +159,7 @@ export class UltraBrainEngine {
       rewritten_thought: rewrittenThought === input.thought ? undefined : rewrittenThought,
     };
 
+    const relatedThoughts = findRelated(session, input);
     session.thoughts.push(record);
     trimRecordList(session.thoughts, MAX_SESSION_THOUGHTS);
 
@@ -181,6 +183,7 @@ export class UltraBrainEngine {
       thought_history_length: session.thoughts.length,
       branches: Object.keys(session.branches),
       quality_score: qualityScore,
+      related_thoughts: relatedThoughts.length ? relatedThoughts : undefined,
       confidence: record.confidence,
       budget: {
         mode: record.budget_mode ?? "balanced",
@@ -273,6 +276,9 @@ export class UltraBrainEngine {
     if (input.format === "markdown") {
       return this.export(session.id, "markdown", input.limit);
     }
+    if (input.format === "mermaid") {
+      return renderMermaid(session, thoughts);
+    }
     return renderSummary(session, thoughts);
   }
 
@@ -313,6 +319,13 @@ export class UltraBrainEngine {
       issues.push("Strict validation expects at least three distinct step types.");
     }
 
+    const templateCoverage = this.templateCoverage(session, thoughts);
+    if (templateCoverage && input.strict && templateCoverage.uncovered.length) {
+      issues.push(
+        `Template ${templateCoverage.template} stages not yet covered: ${templateCoverage.uncovered.join(", ")}.`,
+      );
+    }
+
     return {
       status: issues.length ? "needs_work" : "valid",
       session_id: session.id,
@@ -321,8 +334,37 @@ export class UltraBrainEngine {
       strength_count: strengths.length,
       issues,
       strengths,
+      template_coverage: templateCoverage,
       metrics: this.metrics(session.id),
     };
+  }
+
+  private templateCoverage(
+    session: BrainSession,
+    thoughts: ThoughtRecord[],
+  ): { template: string; covered: string[]; uncovered: string[] } | undefined {
+    const template = this.resolveTemplate(session.template);
+    if (!template) {
+      return undefined;
+    }
+    // A stage counts as covered when a thought's step_type or one of its tags
+    // matches the stage name (slugged), so declared template stages stop being
+    // decorative metadata and become a real closure checklist.
+    const marks = new Set<string>();
+    for (const thought of thoughts) {
+      if (thought.step_type) {
+        marks.add(slug(thought.step_type));
+      }
+      for (const tag of thought.tags ?? []) {
+        marks.add(slug(tag));
+      }
+    }
+    const covered: string[] = [];
+    const uncovered: string[] = [];
+    for (const stage of template.stages) {
+      (marks.has(slug(stage)) ? covered : uncovered).push(stage);
+    }
+    return { template: template.id, covered, uncovered };
   }
 
   analyze(input: AnalyzeInput): Record<string, unknown> {
@@ -968,7 +1010,7 @@ export function formatResult(result: BrainResult, format = result.record.respons
   return `${labels}${result.record.thought}\n\n${metadata}`;
 }
 
-function toJsonPayload(result: BrainResult): Record<string, unknown> {
+export function toJsonPayload(result: BrainResult): Record<string, unknown> {
   return {
     status: result.status,
     session_id: result.session_id,
@@ -978,6 +1020,7 @@ function toJsonPayload(result: BrainResult): Record<string, unknown> {
     thought_history_length: result.thought_history_length,
     branches: result.branches,
     quality_score: result.quality_score,
+    related_thoughts: result.related_thoughts,
     confidence: result.confidence,
     budget: result.budget,
     labels: result.labels,
@@ -1061,6 +1104,47 @@ function renderTree(session: BrainSession, thoughts: ThoughtRecord[]): string {
   return lines.join("\n");
 }
 
+function renderMermaid(session: BrainSession, thoughts: ThoughtRecord[]): string {
+  const windowIds = new Set(thoughts.map((thought) => thought.id));
+  const mainChain = thoughts.filter((thought) => thought.branch_id === undefined);
+  const lines = ["graph TD"];
+  for (const thought of mainChain) {
+    lines.push(
+      `  T${thought.thought_number}["${mermaidLabel(`${thought.thought_number}/${thought.total_thoughts} ${thought.step_type ?? "analysis"}`)}"]`,
+    );
+  }
+  for (let i = 1; i < mainChain.length; i++) {
+    lines.push(
+      `  T${(mainChain[i - 1] as ThoughtRecord).thought_number} --> T${(mainChain[i] as ThoughtRecord).thought_number}`,
+    );
+  }
+  for (const [branchId, records] of Object.entries(session.branches)) {
+    const safe = mermaidId(branchId);
+    for (const record of records) {
+      if (!windowIds.has(record.id)) {
+        continue;
+      }
+      const node = `${safe}_${record.thought_number}`;
+      lines.push(
+        `  ${node}["${mermaidLabel(`${branchId} ${record.thought_number}/${record.total_thoughts}`)}"]`,
+      );
+      if (record.branch_from_thought !== undefined) {
+        lines.push(`  T${record.branch_from_thought} --> ${node}`);
+      }
+    }
+  }
+  return lines.join("\n");
+}
+
+function mermaidLabel(value: string): string {
+  return value.replace(/"/g, "'").replace(/\s+/g, " ").slice(0, 80);
+}
+
+function mermaidId(value: string): string {
+  const safe = value.replace(/[^A-Za-z0-9_]/g, "_");
+  return /^[A-Za-z_]/.test(safe) ? safe : `b_${safe}`;
+}
+
 export function trimRecordList(records: ThoughtRecord[], max: number): void {
   while (records.length > max) {
     const protectedThoughts = referencedThoughtNumbers(records);
@@ -1095,6 +1179,33 @@ function referencedThoughtNumbers(records: ThoughtRecord[]): Set<number> {
 
 function hasActiveThought(session: BrainSession, thoughtNumber: number): boolean {
   return session.thoughts.some((thought) => thought.thought_number === thoughtNumber);
+}
+
+function findRelated(session: BrainSession, input: ThoughtInput, max = 3): RelatedThought[] {
+  const inputTags = new Set(input.tags ?? []);
+  const scored: Array<{ related: RelatedThought; score: number }> = [];
+  for (const prior of session.thoughts) {
+    if (prior.thought_number === input.thought_number && prior.branch_id === input.branch_id) {
+      continue;
+    }
+    const sharedTags = (prior.tags ?? []).filter((tag) => inputTags.has(tag));
+    const stepMatch = input.step_type !== undefined && prior.step_type === input.step_type ? 2 : 0;
+    const score = stepMatch + sharedTags.length;
+    if (score > 0) {
+      scored.push({
+        related: {
+          thought_number: prior.thought_number,
+          step_type: prior.step_type,
+          shared_tags: sharedTags,
+        },
+        score,
+      });
+    }
+  }
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, max)
+    .map((entry) => entry.related);
 }
 
 function isBrainSession(value: unknown): value is BrainSession {

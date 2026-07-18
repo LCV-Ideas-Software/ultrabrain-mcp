@@ -16,7 +16,7 @@ const MAX_TEXT_LENGTH = 20000;
 export const DEFAULT_SESSION_ID = "default";
 
 const responseFormatSchema = z.enum(["json", "markdown", "text"]);
-const reviewFormatSchema = z.enum(["summary", "linear", "tree", "markdown", "json"]);
+const reviewFormatSchema = z.enum(["summary", "linear", "tree", "markdown", "json", "mermaid"]);
 const mergeStrategySchema = z.enum(["synthesis", "best_evidence", "decision"]);
 const reasoningModeSchema = z.enum([
   "code",

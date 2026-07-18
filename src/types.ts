@@ -108,6 +108,12 @@ export interface BrainSession {
   merged_branches: Record<string, string>;
 }
 
+export interface RelatedThought {
+  thought_number: number;
+  step_type?: StepType | undefined;
+  shared_tags: string[];
+}
+
 export interface BrainResult {
   status: "processed";
   session_id: string;
@@ -117,6 +123,7 @@ export interface BrainResult {
   thought_history_length: number;
   branches: string[];
   quality_score: number;
+  related_thoughts?: RelatedThought[] | undefined;
   confidence?: number | undefined;
   budget?:
     | {
@@ -160,7 +167,7 @@ export interface UpdateThoughtInput {
 
 export interface ReviewInput {
   session_id: string;
-  format: "summary" | "linear" | "tree" | "markdown" | "json";
+  format: "summary" | "linear" | "tree" | "markdown" | "json" | "mermaid";
   limit?: number | undefined;
 }
 

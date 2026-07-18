@@ -30,7 +30,7 @@ import {
 import type { ResponseFormat, ToolErrorPayload } from "./types.js";
 
 const SERVER_NAME = "ultrabrain-mcp";
-const SERVER_VERSION = "1.2.0";
+const SERVER_VERSION = "1.2.1";
 
 const engine = new UltraBrainEngine({
   persistence_dir: process.env.ULTRABRAIN_STATE_DIR ?? process.env.ULTRABRAIN_PERSIST_DIR,

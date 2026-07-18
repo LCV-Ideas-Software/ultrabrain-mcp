@@ -49,3 +49,22 @@ describe("C7: review markdown honors the limit argument", () => {
     expect(headerCount).toBe(2);
   });
 });
+
+describe("export json with a limit keeps the transcript consistent", () => {
+  it("does not leak branch records outside the limited window", () => {
+    const engine = new UltraBrainEngine();
+    engine.process(thought({ session_id: "s", thought_number: 1 }));
+    engine.process(
+      thought({ session_id: "s", thought_number: 2, branch_id: "b", branch_from_thought: 1 }),
+    );
+    for (const n of [3, 4, 5]) {
+      engine.process(thought({ session_id: "s", thought_number: n }));
+    }
+    const parsed = JSON.parse(engine.export("s", "json", 2)) as {
+      thoughts: unknown[];
+      branches: Record<string, unknown[]>;
+    };
+    expect(parsed.thoughts).toHaveLength(2);
+    expect(parsed.branches.b ?? []).toHaveLength(0);
+  });
+});

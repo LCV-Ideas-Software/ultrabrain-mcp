@@ -521,7 +521,19 @@ export class UltraBrainEngine {
     }
     const thoughts = this.limitedThoughts(session, limit);
     if (format === "json") {
-      return JSON.stringify(limit === undefined ? session : { ...session, thoughts }, null, 2);
+      if (limit === undefined) {
+        return JSON.stringify(session, null, 2);
+      }
+      // Keep the limited transcript consistent: branch records outside the window
+      // must not leak back in through session.branches. Filter without mutating.
+      const keptIds = new Set(thoughts.map((thought) => thought.id));
+      const branches = Object.fromEntries(
+        Object.entries(session.branches).map(([id, records]) => [
+          id,
+          records.filter((record) => keptIds.has(record.id)),
+        ]),
+      );
+      return JSON.stringify({ ...session, thoughts, branches }, null, 2);
     }
     if (format === "text") {
       return thoughts

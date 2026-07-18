@@ -1,6 +1,6 @@
 {
   "name": "@lcv-ideas-software/ultrabrain-mcp",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "LCV-branded MCP reasoning gate for structured engineering thought, validation, and review readiness.",
   "type": "module",
   "main": "dist/index.js",

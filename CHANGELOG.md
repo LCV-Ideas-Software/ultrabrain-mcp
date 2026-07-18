@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.1 - 2026-07-17
+
+**Patch — retro cross-review follow-up.** A peer review of the 1.2.0 diff flagged one latent inconsistency: `engine.export()` with a `limit` and `json` format returned the limited `thoughts` but the full `session.branches`, so a branch record outside the window could leak back in. The path is not reachable through the `ultrabrain_export` tool (it passes no limit) or the markdown export, but the JSON export is now consistent: branches are filtered to the retained thought ids without mutating the session, covered by a regression test.
+
 ## 1.2.0 - 2026-07-17
 
 **Minor — audit remediation: correctness cluster, a unit-test layer, and Tier-1 reasoning-gate features.** Outcome of a multi-agent audit and cross-review. Adds a `vitest` unit suite alongside the existing smoke integration test, fixes the confirmed correctness findings (each covered by a red-then-green test), and lands additive Tier-1 features. No public tool was removed or renamed.

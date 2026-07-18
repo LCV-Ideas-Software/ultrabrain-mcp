@@ -80,6 +80,16 @@ jobs:
           else
             DIST_TAG="latest"
           fi
+          # Release integrity: the published tag must match the package.json-derived
+          # display tag (allowing a prerelease suffix), so a mismatched tag cannot
+          # publish an unrelated version under a misleading GitHub Release name.
+          case "$TAG" in
+            "$DISPLAY_TAG" | "$DISPLAY_TAG"-*) : ;;
+            *)
+              echo "::error::Publish tag '$TAG' does not match the package version display tag '$DISPLAY_TAG' (version $VERSION)."
+              exit 1
+              ;;
+          esac
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"

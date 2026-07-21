@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.2 - 2026-07-21
+
+**Security patch — update the transitive HTTP request parser.** Resolves GHSA-v422-hmwv-36x6 / CVE-2026-12590 by updating `body-parser` from 2.2.2 to 2.3.0 through the existing `@modelcontextprotocol/sdk` → Express dependency chain. The patched parser rejects invalid or `NaN` request-size limits instead of silently disabling body-size enforcement.
+
 ## 1.2.1 - 2026-07-17
 
 **Patch — retro cross-review follow-up.** A peer review of the 1.2.0 diff flagged one latent inconsistency: `engine.export()` with a `limit` and `json` format returned the limited `thoughts` but the full `session.branches`, so a branch record outside the window could leak back in. The path is not reachable through the `ultrabrain_export` tool (it passes no limit) or the markdown export, but the JSON export is now consistent: branches are filtered to the retained thought ids without mutating the session, covered by a regression test.

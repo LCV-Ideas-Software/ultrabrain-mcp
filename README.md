@@ -20,7 +20,7 @@
 
 **Install.** `npm install -g @lcv-ideas-software/ultrabrain-mcp` from npmjs.com, or `npm install -g @lcv-ideas-software/ultrabrain-mcp --registry=https://npm.pkg.github.com` from the GitHub Packages mirror.
 
-**Status.** Stable. Current release: **v01.02.01** (npm package `1.2.1`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
+**Status.** Stable. Current release: **v01.02.02** (npm package `1.2.2`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
 
 First publication started at **v01.00.00**. Public GitHub tags use the LCV display convention `v00.00.00`; npm keeps normal SemVer.
 
@@ -30,6 +30,7 @@ The version history at a glance:
 
 | Release     | Package | Date       | Notes                                                                                                                                                                                   |
 | ----------- | ------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `v01.02.02` | `1.2.2` | 2026-07-21 | Security patch: updates transitive `body-parser` to 2.3.0, restoring request-size enforcement for invalid limit values (GHSA-v422-hmwv-36x6 / CVE-2026-12590). |
 | `v01.02.01` | `1.2.1` | 2026-07-17 | Retro cross-review follow-up: `export` json+limit filters branches to the retained thoughts (latent leak, not tool-reachable), with a regression test. |
 | `v01.02.00` | `1.2.0` | 2026-07-17 | Audit remediation: correctness cluster (persistence, state machine, validation, protocol), a `vitest` unit-test layer, and Tier-1 features (mermaid review, template coverage, related thoughts, structuredContent). |
 | `v01.01.01` | `1.1.1` | 2026-05-15 | 4-gate quality directive compliance: added Biome, aligned CI, applied cosmetic source cleanup, and synchronized SERVER_VERSION to `1.1.1`. |

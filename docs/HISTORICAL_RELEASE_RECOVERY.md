@@ -57,12 +57,16 @@ mutation-sensitive checks immediately before publishing the draft:
    archive SHA-256, require exactly one ZIP entry, and verify the extracted
    tarball's byte length, SHA-256, and canonical SHA-512 SRI.
 6. Compare that SRI with the already public package version on npmjs.com and
-   GitHub Packages. No package is republished.
+   GitHub Packages through isolated working directories and explicit scoped
+   registries. No package is republished.
 7. Enumerate all releases, require exactly one release with the selected tag,
    then operate through the frozen numeric release ID. Metadata, author ID,
    draft/immutable state, and asset count must match exactly.
 8. Require the owner-enforced immutable-releases policy and the exact immutable
-   `v01.02.07` latest release before each mutation.
+   `v01.02.07` latest release before each mutation. A safe GitHub CLI version
+   must cryptographically verify both its release and downloaded exact asset;
+   the returned JSON must attest the frozen repository, release ID, tag, tag
+   commit SHA, asset name, and asset SHA-256.
 9. Upload only when the exact draft has no asset. A retry may reuse one exact,
    matching staged asset. The workflow never deletes, overwrites, or replaces
    an asset and refuses any unexpected asset or metadata.
@@ -70,7 +74,9 @@ mutation-sensitive checks immediately before publishing the draft:
     `prerelease: false`, and `make_latest: "false"`. Then require the same
     single asset, immutable state, unchanged latest release, matching public
     registry SRIs, exact downloaded asset bytes, and GitHub release and asset
-    attestations.
+    attestations. After `immutable: true`, the workflow reads the historical
+    tag again and validates both `gh release verify --format json` outputs
+    against the same frozen identities.
 
 Immediately before the PATCH, the workflow repeats the immutable policy,
 latest release, complete release listing, exact release snapshot, and exact
@@ -87,6 +93,38 @@ and the mutation. The workflow minimizes that interval, serializes every
 recovery, restricts dispatch to the sole operator, and sends only the three
 release-state fields in the PATCH so it cannot overwrite concurrent release
 notes or other metadata.
+
+### Registry and credential boundary
+
+The repository's development `.npmrc` intentionally maps the package scope to
+npmjs.com. npm gives a scoped registry mapping its own precedence, so merely
+passing a generic `--registry=https://npm.pkg.github.com` while running from
+the checkout can still query npmjs.com. The recovery workflow therefore never
+runs either public-registry lookup from the project directory.
+
+It creates separate directories under `RUNNER_TEMP`, uses explicit
+`--scope`, `--registry`, and `--userconfig` arguments, and creates the GitHub
+Packages npmrc with mode `0600` containing only:
+
+```ini
+@lcv-ideas-software:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+```
+
+The placeholder remains literal on disk. Only the exact GitHub Packages
+`npm view` process receives `NODE_AUTH_TOKEN`, using the run's ephemeral
+`GITHUB_TOKEN`; the token is never an argument or log value. The administrator
+token is confined to immutable-policy and environment API reads and is never
+given to npm. An EXIT trap validates the temporary paths and removes only the
+two exact npmrc files and their empty directories, without recursive deletion.
+
+GitHub CLI safety is checked during initial evidence collection, repeated at
+the immediate asset-upload and release-PATCH boundaries, and checked again
+during final verification. The known immutable
+`v01.02.07` release and asset attestations are verified before either mutation.
+The historical tag is fetched again after the release becomes immutable, and
+the final release and asset attestation JSON is bound to the frozen release
+ID, repository ID, tag SHA, asset name, and digest.
 
 The global concurrency group uses `queue: max`, with cancellation disabled, so
 recoveries are serialized without replacing a waiting run. GitHub currently
@@ -152,7 +190,8 @@ An interruption or a detected `main` advance after an asset upload but before
 publication leaves the draft and exact asset intact. A retry revalidates and
 reuses that asset. If the release was already published and made immutable, a
 retry performs only the final verification path. No cleanup action is
-automated.
+automated for releases, tags, or assets; only temporary local authentication
+files are removed.
 
 ## Primary references
 
@@ -170,7 +209,10 @@ automated.
 - [Deployment environment REST API](https://docs.github.com/en/rest/deployments/environments)
 - [Deployment branch policy REST API](https://docs.github.com/en/rest/deployments/branch-policies)
 - [npm view](https://docs.npmjs.com/cli/v8/commands/npm-view/)
+- [npmrc files, scoped registries, and scoped authentication](https://docs.npmjs.com/files/npmrc/)
 - [GitHub Packages npm registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry)
+- [`gh release verify`](https://cli.github.com/manual/gh_release_verify)
+- [`gh release verify-asset`](https://cli.github.com/manual/gh_release_verify-asset)
 
 The design also accounts for maintainer and community operational evidence:
 

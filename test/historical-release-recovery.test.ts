@@ -8,12 +8,14 @@ import {
   assertRecoverableRecord,
   expectedConfirmation,
   HISTORICAL_RELEASES,
+  LATEST_RELEASE,
   uploadReleaseAsset,
   validateArtifactSet,
   validateDispatchContext,
   validateImmutablePolicy,
   validateLatestRelease,
   validateRecoveryEnvironment,
+  validateReleaseAttestation,
   validateReleaseList,
   validateReleaseSnapshot,
   validateSourceJobs,
@@ -24,6 +26,9 @@ import {
 const workflow = readFileSync(
   new URL("../.github/workflows/recover-historical-releases.yml", import.meta.url),
   "utf8",
+);
+const liveLatestAttestationFixture = JSON.parse(
+  readFileSync(new URL("./fixtures/github-release-verify-v01.02.07.json", import.meta.url), "utf8"),
 );
 
 const owner = { login: "github-actions[bot]", id: 41898282 };
@@ -284,6 +289,52 @@ describe("dispatch and historical evidence validation", () => {
     ).toThrow(/main|branch/i);
   });
 
+  it("validates the real gh release verification shape against every frozen identity", () => {
+    expect(() =>
+      validateReleaseAttestation(liveLatestAttestationFixture, LATEST_RELEASE),
+    ).not.toThrow();
+
+    const historical = structuredClone(liveLatestAttestationFixture);
+    const historicalItem = record("v01.02.05");
+    const historicalPurl = "pkg:github/LCV-Ideas-Software/ultrabrain-mcp@v01.02.05";
+    historical.verificationResult.statement.predicate.databaseId = String(
+      historicalItem.release.id,
+    );
+    historical.verificationResult.statement.predicate.purl = historicalPurl;
+    historical.verificationResult.statement.predicate.tag = historicalItem.tag;
+    historical.verificationResult.statement.subject[0].uri = historicalPurl;
+    historical.verificationResult.statement.subject[0].digest.sha1 = historicalItem.tagSha;
+    historical.verificationResult.statement.subject[1].name = historicalItem.package.tarball;
+    historical.verificationResult.statement.subject[1].digest.sha256 =
+      historicalItem.package.sha256;
+    expect(() => validateReleaseAttestation(historical, historicalItem)).not.toThrow();
+
+    for (const [field, mutate] of [
+      [
+        "repository",
+        (fixture) => (fixture.verificationResult.statement.predicate.repository = "other/repo"),
+      ],
+      ["tag", (fixture) => (fixture.verificationResult.statement.predicate.tag = "v99.99.99")],
+      [
+        "release id",
+        (fixture) => (fixture.verificationResult.statement.predicate.databaseId = "1"),
+      ],
+      [
+        "tag SHA",
+        (fixture) => (fixture.verificationResult.statement.subject[0].digest.sha1 = "0".repeat(40)),
+      ],
+      [
+        "asset digest",
+        (fixture) =>
+          (fixture.verificationResult.statement.subject[1].digest.sha256 = "0".repeat(64)),
+      ],
+    ]) {
+      const changed = structuredClone(liveLatestAttestationFixture);
+      mutate(changed);
+      expect(() => validateReleaseAttestation(changed, LATEST_RELEASE), field).toThrow();
+    }
+  });
+
   it("binds the tag's package metadata to the frozen version", () => {
     const item = record();
     expect(() =>
@@ -478,12 +529,14 @@ describe("recovery workflow safety contract", () => {
       "unset RECOVERY_GITHUB_TOKEN ADMIN_GH_TOKEN",
       recoveryStep,
     );
+    const firstChild = workflow.indexOf("mktemp -d", recoveryStep);
     const firstApi = workflow.indexOf("github_api", recoveryStep);
     const upload = workflow.indexOf("upload-asset", recoveryStep);
     const prePatchRevalidation = workflow.indexOf("pre-publish-revalidation", upload);
     const patch = workflow.indexOf("--method PATCH", prePatchRevalidation);
     expect(recoveryStep).toBeGreaterThan(-1);
     expect(unsetSecrets).toBeGreaterThan(recoveryStep);
+    expect(firstChild).toBeGreaterThan(unsetSecrets);
     expect(firstApi).toBeGreaterThan(unsetSecrets);
     expect(upload).toBeGreaterThan(firstApi);
     expect(prePatchRevalidation).toBeGreaterThan(upload);
@@ -521,5 +574,54 @@ describe("recovery workflow safety contract", () => {
     expect(workflow).toContain('github_release verify "$recovery_tag"');
     expect(workflow).toContain('github_release verify-asset "$recovery_tag"');
     expect(workflow).toContain("assert-safe-gh-release-verifier");
+  });
+
+  it("isolates GitHub Packages resolution and exposes the ephemeral token only to npm", () => {
+    const registryBlock = workflow.slice(
+      workflow.indexOf("verify_registry_integrity()"),
+      workflow.indexOf("validate_recovery_environment initial-evidence"),
+    );
+    expect(workflow).toContain(`mktemp -d "\${RUNNER_TEMP}/historical-github-packages.XXXXXX"`);
+    expect(workflow).toContain('chmod 600 "$github_packages_npmrc"');
+    expect(workflow).toContain("@lcv-ideas-software:registry=https://npm.pkg.github.com");
+    expect(workflow).toContain(`//npm.pkg.github.com/:_authToken=\${NODE_AUTH_TOKEN}`);
+    expect(registryBlock).toContain('cd "$github_packages_npm_dir"');
+    expect(registryBlock).toContain('--scope="@lcv-ideas-software"');
+    expect(registryBlock).toContain("--registry=https://npm.pkg.github.com");
+    expect(registryBlock).toContain('--userconfig="$github_packages_npmrc"');
+    expect(registryBlock).toContain('NODE_AUTH_TOKEN="$github_token" npm view');
+    expect(registryBlock).not.toContain('NODE_AUTH_TOKEN="$admin_token"');
+    expect(registryBlock).not.toMatch(/npm view[^\n]*\$(?:github|admin)_token/);
+    expect(workflow.match(/NODE_AUTH_TOKEN="\$github_token"/g)).toHaveLength(1);
+    expect(workflow.match(/GH_TOKEN="\$admin_token" gh api/g)).toHaveLength(1);
+    expect(workflow).not.toMatch(/export\s+(?:github_token|admin_token)/);
+    expect(workflow).toContain("trap cleanup_registry_verification EXIT");
+    expect(workflow).not.toContain("rm -rf");
+  });
+
+  it("verifies a safe gh and the known latest attestation before each mutation", () => {
+    const upload = workflow.indexOf("upload-asset");
+    const patch = workflow.indexOf("--method PATCH");
+    const immutable = workflow.indexOf('observed_immutable" = "true"');
+    expect(workflow.indexOf("validate_safe_gh initial-evidence")).toBeLessThan(upload);
+    expect(workflow.indexOf("verify_latest_attestation initial-evidence")).toBeLessThan(upload);
+    expect(workflow.lastIndexOf("validate_safe_gh final-upload-boundary", upload)).toBeGreaterThan(
+      workflow.indexOf('release_is_draft" = "true"'),
+    );
+    expect(
+      workflow.lastIndexOf("verify_latest_attestation final-upload-boundary", upload),
+    ).toBeGreaterThan(workflow.indexOf('release_is_draft" = "true"'));
+    expect(workflow.lastIndexOf("validate_safe_gh final-publish-boundary", patch)).toBeGreaterThan(
+      upload,
+    );
+    expect(
+      workflow.lastIndexOf("verify_latest_attestation final-publish-boundary", patch),
+    ).toBeGreaterThan(upload);
+    expect(workflow.indexOf("validate_tag_and_main final-immutable", immutable)).toBeGreaterThan(
+      immutable,
+    );
+    expect(workflow).toContain('github_release verify "$recovery_tag"');
+    expect(workflow).toContain("--format json");
+    expect(workflow).toContain("validate-attestation");
   });
 });

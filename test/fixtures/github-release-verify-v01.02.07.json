@@ -1,0 +1,55 @@
+{
+  "verificationResult": {
+    "mediaType": "application/vnd.dev.sigstore.verificationresult+json;version=0.1",
+    "signature": {
+      "certificate": {
+        "certificateIssuer": "CN=Fulcio Intermediate l1,O=GitHub\\, Inc.",
+        "subjectAlternativeName": "https://dotcom.releases.github.com"
+      }
+    },
+    "statement": {
+      "_type": "https://in-toto.io/Statement/v1",
+      "predicate": {
+        "databaseId": "358281062",
+        "ownerId": "279524964",
+        "packageId": "1236279848",
+        "purl": "pkg:github/LCV-Ideas-Software/ultrabrain-mcp@v01.02.07",
+        "repository": "LCV-Ideas-Software/ultrabrain-mcp",
+        "repositoryId": "1236279848",
+        "tag": "v01.02.07"
+      },
+      "predicateType": "https://in-toto.io/attestation/release/v0.2",
+      "subject": [
+        {
+          "digest": {
+            "sha1": "e1163f2e752890877743c234b1f897033299ba74"
+          },
+          "uri": "pkg:github/LCV-Ideas-Software/ultrabrain-mcp@v01.02.07"
+        },
+        {
+          "digest": {
+            "sha256": "f9aefd88a42fcb9fe5cd8a445eefefdd7f26a9d3b60201b0d95f016f8602276f"
+          },
+          "name": "lcv-ideas-software-ultrabrain-mcp-1.2.7.tgz"
+        }
+      ]
+    },
+    "verifiedIdentity": {
+      "issuer": {
+        "issuer": "",
+        "regexp": ".*"
+      },
+      "subjectAlternativeName": {
+        "regexp": "^https://dotcom\\.releases\\.github\\.com$",
+        "subjectAlternativeName": ""
+      }
+    },
+    "verifiedTimestamps": [
+      {
+        "timestamp": "2026-07-22T19:58:30Z",
+        "type": "TimestampAuthority",
+        "uri": "timestamp.githubapp.com"
+      }
+    ]
+  }
+}

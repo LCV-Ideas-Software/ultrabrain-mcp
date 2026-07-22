@@ -7,6 +7,7 @@ import { assertCanonicalSha512Sri, canonicalSha512Sri } from "./release-policy.m
 
 const REPOSITORY = "LCV-Ideas-Software/ultrabrain-mcp";
 const REPOSITORY_ID = "1236279848";
+const REPOSITORY_OWNER_ID = "279524964";
 const OPERATOR = { login: "lcv-leo", id: "268063598" };
 const AUTOMATION = { login: "github-actions[bot]", id: "41898282" };
 const PUBLISH_WORKFLOW = { id: "275133470", path: ".github/workflows/publish.yml" };
@@ -236,14 +237,16 @@ export const HISTORICAL_RELEASES = Object.freeze({
   }),
 });
 
-const LATEST_RELEASE = Object.freeze({
+export const LATEST_RELEASE = Object.freeze({
   id: "358281062",
   tag: "v01.02.07",
+  tagSha: "e1163f2e752890877743c234b1f897033299ba74",
   author: AUTOMATION,
   asset: {
     id: "486361797",
     name: "lcv-ideas-software-ultrabrain-mcp-1.2.7.tgz",
     size: 278290,
+    sha256: "f9aefd88a42fcb9fe5cd8a445eefefdd7f26a9d3b60201b0d95f016f8602276f",
     digest: "sha256:f9aefd88a42fcb9fe5cd8a445eefefdd7f26a9d3b60201b0d95f016f8602276f",
   },
 });
@@ -295,6 +298,13 @@ function requireNonEmptyString(value, label) {
     fail(`${label} must be a non-empty string`);
   }
   return value;
+}
+
+function exactKeys(value, expectedKeys, label) {
+  requireObject(value, label);
+  const actualKeys = Object.keys(value).sort();
+  const sortedExpected = [...expectedKeys].sort();
+  exact(actualKeys.join(","), sortedExpected.join(","), `${label} keys`);
 }
 
 function secureDigestEqual(actual, expected, label) {
@@ -522,6 +532,93 @@ export function validateLatestRelease(release) {
   return LATEST_RELEASE.tag;
 }
 
+function attestationIdentity(item) {
+  requireObject(item, "Release attestation identity");
+  if (item === LATEST_RELEASE) {
+    return {
+      releaseId: item.id,
+      tag: item.tag,
+      tagSha: item.tagSha,
+      assetName: item.asset.name,
+      assetSha256: item.asset.sha256,
+    };
+  }
+  assertRecoverableRecord(item);
+  return {
+    releaseId: item.release.id,
+    tag: item.tag,
+    tagSha: item.tagSha,
+    assetName: item.package.tarball,
+    assetSha256: item.package.sha256,
+  };
+}
+
+export function validateReleaseAttestation(payload, item) {
+  requireObject(payload, "GitHub release verification output");
+  const expected = attestationIdentity(item);
+  const verification = requireObject(
+    payload.verificationResult,
+    "GitHub release verification result",
+  );
+  exact(
+    verification.mediaType,
+    "application/vnd.dev.sigstore.verificationresult+json;version=0.1",
+    "GitHub release verification media type",
+  );
+  exact(
+    verification.signature?.certificate?.subjectAlternativeName,
+    "https://dotcom.releases.github.com",
+    "GitHub release attester certificate identity",
+  );
+
+  const statement = requireObject(verification.statement, "GitHub release statement");
+  exactKeys(
+    statement,
+    ["_type", "subject", "predicateType", "predicate"],
+    "GitHub release statement",
+  );
+  exact(statement._type, "https://in-toto.io/Statement/v1", "GitHub release statement type");
+  exact(
+    statement.predicateType,
+    "https://in-toto.io/attestation/release/v0.2",
+    "GitHub release predicate type",
+  );
+
+  const purl = `pkg:github/${REPOSITORY}@${expected.tag}`;
+  const predicate = requireObject(statement.predicate, "GitHub release predicate");
+  exactKeys(
+    predicate,
+    ["databaseId", "ownerId", "packageId", "purl", "repository", "repositoryId", "tag"],
+    "GitHub release predicate",
+  );
+  exact(predicate.databaseId, expected.releaseId, "Attested release id");
+  exact(predicate.ownerId, REPOSITORY_OWNER_ID, "Attested repository owner id");
+  exact(predicate.packageId, REPOSITORY_ID, "Attested package id");
+  exact(predicate.repositoryId, REPOSITORY_ID, "Attested repository id");
+  exact(predicate.repository, REPOSITORY, "Attested repository");
+  exact(predicate.tag, expected.tag, "Attested tag");
+  exact(predicate.purl, purl, "Attested package URL");
+
+  if (!Array.isArray(statement.subject) || statement.subject.length !== 2) {
+    fail(
+      `GitHub release statement must have exactly two subjects, found ${statement.subject?.length ?? "invalid"}`,
+    );
+  }
+  const releaseSubjects = statement.subject.filter((subject) => subject?.uri === purl);
+  const assetSubjects = statement.subject.filter((subject) => subject?.name === expected.assetName);
+  exact(releaseSubjects.length, 1, "Attested release subject count");
+  exact(assetSubjects.length, 1, "Attested asset subject count");
+  const [releaseSubject] = releaseSubjects;
+  const [assetSubject] = assetSubjects;
+  exactKeys(releaseSubject, ["uri", "digest"], "Attested release subject");
+  exactKeys(releaseSubject.digest, ["sha1"], "Attested release digest");
+  exact(releaseSubject.digest.sha1, expected.tagSha, "Attested release tag SHA");
+  exactKeys(assetSubject, ["name", "digest"], "Attested asset subject");
+  exactKeys(assetSubject.digest, ["sha256"], "Attested asset digest");
+  secureDigestEqual(assetSubject.digest.sha256, expected.assetSha256, "Attested asset SHA-256");
+  return true;
+}
+
 export function validateTaggedPackage(packageJson, item) {
   assertRecoverableRecord(item);
   requireObject(packageJson, "Tagged package.json");
@@ -662,6 +759,14 @@ async function runCli(args) {
     console.log(validateLatestRelease(readJson(args[2], "Latest release")));
     return;
   }
+  if (command === "latest-manifest") {
+    console.log(JSON.stringify(LATEST_RELEASE));
+    return;
+  }
+  if (command === "validate-latest-attestation") {
+    validateReleaseAttestation(readJson(args[2], "Latest release attestation"), LATEST_RELEASE);
+    return;
+  }
   if (command === "validate-environment") {
     console.log(
       JSON.stringify(
@@ -715,6 +820,10 @@ async function runCli(args) {
   }
   if (command === "validate-package") {
     validateTaggedPackage(readJson(args[2], "Tagged package.json"), item);
+    return;
+  }
+  if (command === "validate-attestation") {
+    validateReleaseAttestation(readJson(args[2], "Historical release attestation"), item);
     return;
   }
   if (command === "upload-asset") {

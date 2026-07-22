@@ -111,7 +111,66 @@ jobs:
             exit 1
           fi
           if [ -z "$admin_token" ]; then
-            echo "::error::LCV_AUTOMATION_TOKEN is required for policy and GitHub Packages verification."
+            echo "::error::LCV_AUTOMATION_TOKEN is required for policy and environment verification."
+            exit 1
+          fi
+
+          github_packages_npm_dir=""
+          github_packages_npmrc=""
+          npmjs_npm_dir=""
+          npmjs_npmrc=""
+          cleanup_registry_verification() {
+            local cleanup_failed=false
+            if [ -n "${github_packages_npm_dir:-}" ]; then
+              case "$github_packages_npm_dir" in
+                "${RUNNER_TEMP}"/historical-github-packages.*) ;;
+                *)
+                  echo "::error::Refusing unsafe GitHub Packages npm cleanup path."
+                  return 1
+                  ;;
+              esac
+              if [ -n "${github_packages_npmrc:-}" ]; then
+                rm -f -- "$github_packages_npmrc" || cleanup_failed=true
+              fi
+              rmdir -- "$github_packages_npm_dir" || cleanup_failed=true
+            fi
+            if [ -n "${npmjs_npm_dir:-}" ]; then
+              case "$npmjs_npm_dir" in
+                "${RUNNER_TEMP}"/historical-npmjs.*) ;;
+                *)
+                  echo "::error::Refusing unsafe npmjs npm cleanup path."
+                  return 1
+                  ;;
+              esac
+              if [ -n "${npmjs_npmrc:-}" ]; then
+                rm -f -- "$npmjs_npmrc" || cleanup_failed=true
+              fi
+              rmdir -- "$npmjs_npm_dir" || cleanup_failed=true
+            fi
+            if [ "$cleanup_failed" = "true" ]; then
+              echo "::error::Temporary registry verification files were not fully removed."
+              return 1
+            fi
+          }
+          trap cleanup_registry_verification EXIT
+
+          umask 077
+          github_packages_npm_dir="$(mktemp -d "${RUNNER_TEMP}/historical-github-packages.XXXXXX")"
+          github_packages_npmrc="$github_packages_npm_dir/.npmrc"
+          printf '%s\n' \
+            '@lcv-ideas-software:registry=https://npm.pkg.github.com' \
+            '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' \
+            >"$github_packages_npmrc"
+          chmod 600 "$github_packages_npmrc"
+          npmjs_npm_dir="$(mktemp -d "${RUNNER_TEMP}/historical-npmjs.XXXXXX")"
+          npmjs_npmrc="$npmjs_npm_dir/npmrc"
+          printf '%s\n' \
+            '@lcv-ideas-software:registry=https://registry.npmjs.org' \
+            >"$npmjs_npmrc"
+          chmod 600 "$npmjs_npmrc"
+          if [ "$(stat -c '%a' "$github_packages_npmrc")" != "600" ] || \
+             [ "$(stat -c '%a' "$npmjs_npmrc")" != "600" ]; then
+            echo "::error::Temporary npm configuration permissions are not 0600."
             exit 1
           fi
 
@@ -161,6 +220,14 @@ jobs:
           package_tarball="$(jq -er '.package.tarball' "$manifest_json")"
           package_sha256="$(jq -er '.package.sha256' "$manifest_json")"
           package_sri="$(jq -er '.package.sri' "$manifest_json")"
+
+          latest_manifest_json="$RUNNER_TEMP/latest-release-manifest-${GITHUB_RUN_ID}.json"
+          node scripts/historical-release-recovery.mjs latest-manifest >"$latest_manifest_json"
+          latest_release_tag="$(jq -er '.tag' "$latest_manifest_json")"
+          latest_release_tag_sha="$(jq -er '.tagSha' "$latest_manifest_json")"
+          latest_release_asset_id="$(jq -er '.asset.id' "$latest_manifest_json")"
+          latest_release_asset_name="$(jq -er '.asset.name' "$latest_manifest_json")"
+          latest_release_asset_sha256="$(jq -er '.asset.sha256' "$latest_manifest_json")"
 
           validate_tag_and_main() {
             local phase="$1" tag_ref_json tagged_package_json
@@ -227,6 +294,46 @@ jobs:
             node scripts/historical-release-recovery.mjs validate-latest _ "$latest_json" >/dev/null
           }
 
+          validate_safe_gh() {
+            local phase="$1" gh_cli_version
+            gh_cli_version="$(gh --version | awk 'NR == 1 && $1 == "gh" && $2 == "version" { print $3 }')"
+            node scripts/release-policy.mjs assert-safe-gh-release-verifier "$gh_cli_version"
+            echo "Safe gh release verifier $gh_cli_version confirmed during $phase."
+          }
+
+          verify_latest_attestation() {
+            local phase="$1" latest_dir latest_asset latest_release_attestation
+            local latest_asset_attestation latest_tag_ref_json
+            latest_dir="$RUNNER_TEMP/latest-release-attestation-${phase}-${GITHUB_RUN_ID}"
+            mkdir -m 700 "$latest_dir"
+            latest_tag_ref_json="$latest_dir/tag-ref.json"
+            github_api --method GET \
+              "repos/${GITHUB_REPOSITORY}/git/ref/tags/${latest_release_tag}" \
+              >"$latest_tag_ref_json"
+            jq -e --arg ref "refs/tags/$latest_release_tag" \
+              --arg sha "$latest_release_tag_sha" \
+              '.ref == $ref and .object.type == "commit" and .object.sha == $sha' \
+              "$latest_tag_ref_json" >/dev/null
+
+            latest_asset="$latest_dir/$latest_release_asset_name"
+            github_api --method GET -H "Accept: application/octet-stream" \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${latest_release_asset_id}" \
+              >"$latest_asset"
+            echo "$latest_release_asset_sha256  $latest_asset" | sha256sum --check --strict
+
+            latest_release_attestation="$latest_dir/release-attestation.json"
+            github_release verify "$latest_release_tag" \
+              --repo "$GITHUB_REPOSITORY" --format json >"$latest_release_attestation"
+            node scripts/historical-release-recovery.mjs validate-latest-attestation _ \
+              "$latest_release_attestation"
+
+            latest_asset_attestation="$latest_dir/asset-attestation.json"
+            github_release verify-asset "$latest_release_tag" "$latest_asset" \
+              --repo "$GITHUB_REPOSITORY" --format json >"$latest_asset_attestation"
+            node scripts/historical-release-recovery.mjs validate-latest-attestation _ \
+              "$latest_asset_attestation"
+          }
+
           validate_source_evidence() {
             local phase="$1" run_json jobs_json artifacts_json artifact_json artifact_set_json
             run_json="$RUNNER_TEMP/source-run-${phase}-${GITHUB_RUN_ID}.json"
@@ -273,16 +380,28 @@ jobs:
 
           verify_registry_integrity() {
             local phase="$1" npmjs_json npmjs_sri github_json github_sri
-            npmjs_json="$(npm view "${package_name}@${package_version}" dist.integrity \
-              --json --registry=https://registry.npmjs.org)"
+            npmjs_json="$(
+              cd "$npmjs_npm_dir"
+              npm view "${package_name}@${package_version}" dist.integrity \
+                --json \
+                --scope="@lcv-ideas-software" \
+                --registry=https://registry.npmjs.org \
+                --userconfig="$npmjs_npmrc"
+            )"
             npmjs_sri="$(node scripts/release-policy.mjs \
               normalize-npm-view-integrity "$npmjs_json")"
             node scripts/release-policy.mjs verify-sri \
               "$package_sri" "$npmjs_sri" "npmjs.com during $phase"
 
-            github_json="$(NODE_AUTH_TOKEN="$admin_token" npm view \
-              "${package_name}@${package_version}" dist.integrity \
-              --json --registry=https://npm.pkg.github.com)"
+            github_json="$(
+              cd "$github_packages_npm_dir"
+              NODE_AUTH_TOKEN="$github_token" npm view \
+                "${package_name}@${package_version}" dist.integrity \
+                --json \
+                --scope="@lcv-ideas-software" \
+                --registry=https://npm.pkg.github.com \
+                --userconfig="$github_packages_npmrc"
+            )"
             github_sri="$(node scripts/release-policy.mjs \
               normalize-npm-view-integrity "$github_json")"
             node scripts/release-policy.mjs verify-sri \
@@ -290,9 +409,11 @@ jobs:
           }
 
           validate_recovery_environment initial-evidence
+          validate_safe_gh initial-evidence
           validate_tag_and_main initial-evidence
           validate_policy initial-evidence
           validate_latest initial-evidence
+          verify_latest_attestation initial-evidence
           validate_source_evidence initial-evidence
           verify_registry_integrity initial-evidence
 
@@ -321,6 +442,9 @@ jobs:
           release_is_draft="$(jq -er '.draft | if type == "boolean" then tostring else error("invalid draft") end' "$release_json")"
 
           if [ "$release_is_draft" = "true" ] && [ -z "$existing_asset_id" ]; then
+            validate_safe_gh final-upload-boundary
+            validate_latest final-upload-boundary
+            verify_latest_attestation final-upload-boundary
             upload_json="$RUNNER_TEMP/historical-release-upload-${GITHUB_RUN_ID}.json"
             RECOVERY_GITHUB_TOKEN="$github_token" \
               node scripts/historical-release-recovery.mjs upload-asset \
@@ -367,8 +491,10 @@ jobs:
               >"$publish_payload"
 
             validate_recovery_environment final-publish-boundary
+            validate_safe_gh final-publish-boundary
             validate_policy final-publish-boundary
             validate_latest final-publish-boundary
+            verify_latest_attestation final-publish-boundary
             load_release_list final-publish-boundary
             load_exact_release final-publish-boundary "$staged_release_json"
             node scripts/historical-release-recovery.mjs validate-release \
@@ -410,19 +536,27 @@ jobs:
             exit 1
           fi
 
+          validate_tag_and_main final-immutable
           load_release_list final
+          validate_safe_gh final
           validate_policy final
           validate_latest final
+          verify_latest_attestation final
           verify_release_asset_bytes final
           verify_registry_integrity final
 
-          gh_cli_version="$(gh --version | awk 'NR == 1 && $1 == "gh" && $2 == "version" { print $3 }')"
-          node scripts/release-policy.mjs assert-safe-gh-release-verifier "$gh_cli_version"
           attestation_verified=false
           for attestation_attempt in {1..12}; do
-            if github_release verify "$recovery_tag" --repo "$GITHUB_REPOSITORY" && \
+            release_attestation_json="$RUNNER_TEMP/historical-release-attestation-${attestation_attempt}-${GITHUB_RUN_ID}.json"
+            asset_attestation_json="$RUNNER_TEMP/historical-asset-attestation-${attestation_attempt}-${GITHUB_RUN_ID}.json"
+            if github_release verify "$recovery_tag" --repo "$GITHUB_REPOSITORY" \
+                 --format json >"$release_attestation_json" && \
+               node scripts/historical-release-recovery.mjs validate-attestation \
+                 "$recovery_tag" "$release_attestation_json" && \
                github_release verify-asset "$recovery_tag" "$artifact_tarball" \
-                 --repo "$GITHUB_REPOSITORY"; then
+                 --repo "$GITHUB_REPOSITORY" --format json >"$asset_attestation_json" && \
+               node scripts/historical-release-recovery.mjs validate-attestation \
+                 "$recovery_tag" "$asset_attestation_json"; then
               attestation_verified=true
               break
             fi

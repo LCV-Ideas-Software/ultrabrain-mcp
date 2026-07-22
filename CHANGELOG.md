@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+**Historical-release recovery hardening.** Adds a one-time, fail-closed
+recovery workflow for the unambiguous 1.2.5 and 1.2.6 GitHub Release drafts
+while preserving both ambiguous 1.2.4 drafts. Registry verification now runs
+outside the project npm configuration with registry-scoped ephemeral
+authentication, and every mutation is gated by exact release, artifact, tag,
+environment, immutable-policy, and cryptographically verified attestation
+identities. The existing immutable 1.2.7 release remains latest; this change
+does not publish, delete, or recreate any package, tag, release, or asset.
+
 ## 1.2.7 - 2026-07-22
 
 **Patch — eventual-consistency-safe draft discovery.** After creating a

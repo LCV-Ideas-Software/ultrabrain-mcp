@@ -61,12 +61,14 @@ jobs:
           ADMIN_GH_TOKEN: ${{ secrets.LCV_AUTOMATION_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "$ADMIN_GH_TOKEN" ]; then
+          admin_gh_token="$ADMIN_GH_TOKEN"
+          unset ADMIN_GH_TOKEN
+          if [ -z "$admin_gh_token" ]; then
             echo "::error::LCV_AUTOMATION_TOKEN is required for the pre-publication immutable-release policy gate."
             exit 1
           fi
           policy_error="$RUNNER_TEMP/immutable-release-policy-gate-${GITHUB_RUN_ID}.err"
-          if ! policy_json="$(GH_TOKEN="$ADMIN_GH_TOKEN" gh api --method GET \
+          if ! policy_json="$(GH_TOKEN="$admin_gh_token" gh api --method GET \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2026-03-10" \
             "repos/${GITHUB_REPOSITORY}/immutable-releases" 2>"$policy_error")"; then
@@ -670,6 +672,24 @@ jobs:
           PACKAGE_SHA256: ${{ needs.gate.outputs.package_sha256 }}
         run: |
           set -euo pipefail
+          github_token="$GH_TOKEN"
+          immutability_token="$IMMUTABILITY_TOKEN"
+          unset GH_TOKEN
+          unset IMMUTABILITY_TOKEN
+          if [ -z "$github_token" ]; then
+            echo "::error::GITHUB_TOKEN is required for release reconciliation."
+            exit 1
+          fi
+          if [ -z "$immutability_token" ]; then
+            echo "::error::LCV_AUTOMATION_TOKEN is required for immutable-release verification."
+            exit 1
+          fi
+          github_api() {
+            GH_TOKEN="$github_token" gh api "$@"
+          }
+          github_release() {
+            GH_TOKEN="$github_token" gh release "$@"
+          }
           if [ "$PUBLISH_REF_TYPE" != "tag" ] || [ "$PUBLISH_EVENT_REF" != "refs/tags/$TAG" ] || [ "$PUBLISH_REF_PROTECTED" != "true" ]; then
             echo "::error::Protected tag trigger identity is no longer valid."
             exit 1
@@ -692,7 +712,7 @@ jobs:
           read_latest_release_tag() {
             local latest_json latest_error
             latest_error="$RUNNER_TEMP/latest-release-${GITHUB_RUN_ID}.err"
-            if latest_json="$(gh api --method GET "repos/$GITHUB_REPOSITORY/releases/latest" 2>"$latest_error")"; then
+            if latest_json="$(github_api --method GET "repos/$GITHUB_REPOSITORY/releases/latest" 2>"$latest_error")"; then
               jq -er '.tag_name' <<<"$latest_json"
               return
             fi
@@ -713,12 +733,8 @@ jobs:
           release_json="$RUNNER_TEMP/release-${GITHUB_RUN_ID}.json"
           assert_immutable_release_policy() {
             local phase="$1" policy_json policy_error policy_enabled policy_enforced
-            if [ -z "$IMMUTABILITY_TOKEN" ]; then
-              echo "::error::LCV_AUTOMATION_TOKEN is required to read the administrative immutable-release policy before $phase."
-              exit 1
-            fi
             policy_error="$RUNNER_TEMP/immutable-release-policy-${phase}-${GITHUB_RUN_ID}.err"
-            if ! policy_json="$(GH_TOKEN="$IMMUTABILITY_TOKEN" gh api --method GET \
+            if ! policy_json="$(GH_TOKEN="$immutability_token" gh api --method GET \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2026-03-10" \
               "repos/${GITHUB_REPOSITORY}/immutable-releases" 2>"$policy_error")"; then
@@ -746,7 +762,7 @@ jobs:
 
           load_release() {
             local release_pages matching_releases matching_count
-            release_pages="$(gh api --method GET --paginate --slurp \
+            release_pages="$(github_api --method GET --paginate --slurp \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2026-03-10" \
               "repos/${GITHUB_REPOSITORY}/releases?per_page=100")"
@@ -779,7 +795,7 @@ jobs:
               '{tag_name: $tag, target_commitish: $target, name: $name, body: $body,
                 draft: true, prerelease: $prerelease}' \
               >"$create_payload"
-            gh api --method POST \
+            github_api --method POST \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2026-03-10" \
               "repos/${GITHUB_REPOSITORY}/releases" \
@@ -802,7 +818,7 @@ jobs:
               "$release_json" "$release_id" "$TAG" "$VERIFIED_SHA" \
               "$PACKAGE_TARBALL" "$expected_asset_id" "$PACKAGE_SHA256")"
             asset_verify_dir="$(mktemp -d "${RUNNER_TEMP}/release-asset.XXXXXX")"
-            gh api --method GET \
+            github_api --method GET \
               -H "Accept: application/octet-stream" \
               -H "X-GitHub-Api-Version: 2026-03-10" \
               "repos/${GITHUB_REPOSITORY}/releases/assets/${current_asset_id}" \
@@ -814,11 +830,21 @@ jobs:
           release_tag="$(jq -er '.tag_name' "$release_json")"
           release_target="$(jq -er '.target_commitish' "$release_json")"
           release_draft="$(jq -er '.draft' "$release_json")"
+          release_immutable="$(jq -er '
+            if has("immutable") and ((.immutable | type) == "boolean")
+            then (.immutable | tostring)
+            else error("missing or invalid immutable release state")
+            end
+          ' "$release_json")"
           release_title="$(jq -r '.name // ""' "$release_json")"
           release_body="$(jq -r '.body // ""' "$release_json")"
           release_prerelease="$(jq -er '.prerelease' "$release_json")"
           if [ "$release_tag" != "$TAG" ] || [ "$release_target" != "$VERIFIED_SHA" ]; then
             echo "::error::Release identity mismatch (tag=$release_tag target=$release_target)."
+            exit 1
+          fi
+          if [ "$release_draft" != "true" ] && [ "$release_immutable" != "true" ]; then
+            echo "::error::Published release $TAG is mutable; refusing recovery or reconciliation."
             exit 1
           fi
           if [ "$release_draft" != "true" ] && \
@@ -845,7 +871,7 @@ jobs:
             curl --fail-with-body --silent --show-error \
               --request POST \
               -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Authorization: Bearer $github_token" \
               -H "X-GitHub-Api-Version: 2026-03-10" \
               -H "Content-Type: application/octet-stream" \
               --data-binary "@artifacts/$PACKAGE_TARBALL" \
@@ -862,12 +888,22 @@ jobs:
           # visibility mutation. A concurrent extra/replacement asset blocks.
           verify_single_asset "$validated_asset_id"
           release_draft="$(jq -er '.draft' "$release_json")"
+          release_immutable="$(jq -er '
+            if has("immutable") and ((.immutable | type) == "boolean")
+            then (.immutable | tostring)
+            else error("missing or invalid immutable release state")
+            end
+          ' "$release_json")"
           release_title="$(jq -r '.name // ""' "$release_json")"
           release_body="$(jq -r '.body // ""' "$release_json")"
           release_prerelease="$(jq -er '.prerelease' "$release_json")"
           if [ "$release_draft" != "true" ] && \
              { [ "$release_title" != "$expected_title" ] || [ "$release_body" != "$expected_body" ] || [ "$release_prerelease" != "$PRERELEASE" ]; }; then
             echo "::error::Published release metadata changed before latest reconciliation."
+            exit 1
+          fi
+          if [ "$release_draft" != "true" ] && [ "$release_immutable" != "true" ]; then
+            echo "::error::Published release $TAG lost immutable status before reconciliation."
             exit 1
           fi
 
@@ -902,21 +938,14 @@ jobs:
                 draft: false, prerelease: $prerelease, make_latest: $make_latest}' \
               >"$publish_payload"
             assert_immutable_release_policy "release-patch"
-            gh api --method PATCH \
+            github_api --method PATCH \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2026-03-10" \
               "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
               --input "$publish_payload" >"$release_json"
           elif [ "$latest_is_reconciled" != "true" ]; then
-            latest_payload="$RUNNER_TEMP/latest-release-${GITHUB_RUN_ID}.json"
-            jq -n --arg make_latest "$PROMOTE_LATEST" \
-              '{make_latest: $make_latest}' >"$latest_payload"
-            assert_immutable_release_policy "latest-reconciliation"
-            gh api --method PATCH \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2026-03-10" \
-              "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
-              --input "$latest_payload" >"$release_json"
+            echo "::error::Published immutable release $TAG is not in the expected GitHub latest state; refusing an unsupported immutable-release mutation."
+            exit 1
           fi
 
           # Publishing under the owner-enforced immutable-release policy also
@@ -977,9 +1006,9 @@ jobs:
             : >"$release_attestation_error"
             : >"$asset_attestation_output"
             : >"$asset_attestation_error"
-            if gh release verify "$TAG" --repo "$GITHUB_REPOSITORY" \
+            if github_release verify "$TAG" --repo "$GITHUB_REPOSITORY" \
               >"$release_attestation_output" 2>"$release_attestation_error" && \
-              gh release verify-asset "$TAG" "artifacts/$PACKAGE_TARBALL" \
+              github_release verify-asset "$TAG" "artifacts/$PACKAGE_TARBALL" \
                 --repo "$GITHUB_REPOSITORY" \
                 >"$asset_attestation_output" 2>"$asset_attestation_error"; then
               cat "$release_attestation_output"

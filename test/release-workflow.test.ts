@@ -27,7 +27,14 @@ describe("release workflow invariants", () => {
     expect(prePublishVerification).toBeGreaterThan(-1);
     expect(releasePatch).toBeGreaterThan(prePublishVerification);
     expect(finalVerification).toBeGreaterThan(releasePatch);
-    expect(publish).toContain('elif [ "$latest_is_reconciled" != "true" ]');
+    expect(publish).toContain("release_immutable=\"$(jq -er '");
+    expect(publish).toContain(
+      'if [ "$release_draft" != "true" ] && [ "$release_immutable" != "true" ]',
+    );
+    expect(publish).toContain('elif [ "$latest_is_reconciled" != "true" ]; then');
+    expect(publish).toContain("refusing an unsupported immutable-release mutation");
+    expect(publish).not.toContain('latest_payload="$RUNNER_TEMP/latest-release-');
+    expect(publish).not.toContain('assert_immutable_release_policy "latest-reconciliation"');
   });
 
   it("requires owner-enforced immutability and verifies signed release attestations", () => {
@@ -39,8 +46,32 @@ describe("release workflow invariants", () => {
     expect(publish).toContain("final_immutable=\"$(jq -er '");
     expect(publish).toContain('has("immutable")');
     expect(publish).toContain("assert-safe-gh-release-verifier");
-    expect(publish).toContain('gh release verify "$TAG"');
-    expect(publish).toContain('gh release verify-asset "$TAG" "artifacts/$PACKAGE_TARBALL"');
+    expect(publish).toContain('github_release verify "$TAG"');
+    expect(publish).toContain('github_release verify-asset "$TAG" "artifacts/$PACKAGE_TARBALL"');
+  });
+
+  it("removes administrative tokens from the exported step environment before subprocesses", () => {
+    const policyGate = publish.indexOf("Require owner-enforced immutable GitHub Releases");
+    const policyUnset = publish.indexOf("unset ADMIN_GH_TOKEN", policyGate);
+    const policyApi = publish.indexOf('GH_TOKEN="$admin_gh_token" gh api', policyGate);
+    expect(policyUnset).toBeGreaterThan(policyGate);
+    expect(policyApi).toBeGreaterThan(policyUnset);
+
+    const releaseStep = publish.indexOf("Revalidate identity and reconcile the GitHub Release");
+    const githubTokenCopy = publish.indexOf('github_token="$GH_TOKEN"', releaseStep);
+    const githubTokenUnset = publish.indexOf("unset GH_TOKEN", releaseStep);
+    const releaseUnset = publish.indexOf("unset IMMUTABILITY_TOKEN", releaseStep);
+    const releaseGit = publish.indexOf('git fetch --force origin "refs/tags/$TAG', releaseStep);
+    expect(githubTokenCopy).toBeGreaterThan(releaseStep);
+    expect(githubTokenUnset).toBeGreaterThan(githubTokenCopy);
+    expect(releaseUnset).toBeGreaterThan(releaseStep);
+    expect(releaseGit).toBeGreaterThan(githubTokenUnset);
+    expect(releaseGit).toBeGreaterThan(releaseUnset);
+    expect(publish).toContain('GH_TOKEN="$immutability_token" gh api');
+    expect(publish).not.toContain('GH_TOKEN="$IMMUTABILITY_TOKEN" gh api');
+    expect(publish).toContain('GH_TOKEN="$github_token" gh api "$@"');
+    expect(publish).toContain('GH_TOKEN="$github_token" gh release "$@"');
+    expect(publish).toContain("Authorization: Bearer $github_token");
   });
 
   it("serializes every main candidate and retains automatic recovery triggers", () => {

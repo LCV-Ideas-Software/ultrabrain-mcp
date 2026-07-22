@@ -452,6 +452,94 @@ jobs:
           done
           echo "Both exact-target CodeQL SARIF analyses contain zero results for $TARGET_SHA."
 
+      - name: Require no unexpected exact-target Scorecard results
+        if: steps.target.outputs.complete != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ steps.target.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+
+          analyses_ready=false
+          for attempt in {1..12}; do
+            pages="$(gh api --method GET --paginate --slurp \
+              -H "Accept: application/vnd.github+json" \
+              "repos/$GITHUB_REPOSITORY/code-scanning/analyses?per_page=100")"
+            analyses="$(jq -c --arg sha "$TARGET_SHA" \
+              '[.[][] | select(
+                .commit_sha == $sha and
+                .ref == "refs/heads/main" and
+                .tool.name == "Scorecard"
+              )]' <<<"$pages")"
+
+            unexpected_categories="$(jq '[.[].category] | unique |
+              map(select(
+                . != "supply-chain/local" and
+                . != "supply-chain/online-scm" and
+                . != "supply-chain/branch-protection"
+              )) | length' <<<"$analyses")"
+            if [ "$unexpected_categories" -ne 0 ]; then
+              jq -r '.[].category' <<<"$analyses" | sort -u
+              echo "::error::Scorecard produced an unreviewed analysis category for $TARGET_SHA."
+              exit 1
+            fi
+
+            analyses_ready=true
+            for category in \
+              "supply-chain/local" \
+              "supply-chain/online-scm" \
+              "supply-chain/branch-protection"; do
+              analysis="$(jq -c --arg category "$category" \
+                '[.[] | select(.category == $category)] | sort_by(.id) | last // null' \
+                <<<"$analyses")"
+              if [ "$analysis" = null ]; then
+                analyses_ready=false
+                echo "Waiting for Scorecard analysis $category on $TARGET_SHA."
+                continue
+              fi
+              analysis_error="$(jq -r '.error // ""' <<<"$analysis")"
+              if [ -n "$analysis_error" ]; then
+                echo "::error::Scorecard analysis $category failed processing: $analysis_error"
+                exit 1
+              fi
+            done
+            if [ "$analyses_ready" = true ]; then
+              break
+            fi
+            if [ "$attempt" -eq 12 ]; then
+              echo "::error::All exact-target Scorecard analyses did not become visible."
+              exit 1
+            fi
+            sleep 5
+          done
+
+          for category in \
+            "supply-chain/local" \
+            "supply-chain/online-scm" \
+            "supply-chain/branch-protection"; do
+            analysis_id="$(jq -er --arg category "$category" \
+              '[.[] | select(.category == $category)] | sort_by(.id) | last | .id' \
+              <<<"$analyses")"
+            sarif_file="$RUNNER_TEMP/scorecard-${analysis_id}.sarif"
+            gh api --method GET -H "Accept: application/sarif+json" \
+              "repos/$GITHUB_REPOSITORY/code-scanning/analyses/$analysis_id" >"$sarif_file"
+            unexpected_results="$(jq '[.runs[]?.results[]? | select(
+              .ruleId != "MaintainedID" and
+              .ruleId != "CodeReviewID" and
+              .ruleId != "CIIBestPracticesID" and
+              .ruleId != "FuzzingID" and
+              .ruleId != "BranchProtectionID" and
+              .ruleId != "TokenPermissionsID"
+            )] | length' "$sarif_file")"
+            if [ "$unexpected_results" -ne 0 ]; then
+              echo "::error::Scorecard $category contains $unexpected_results unexpected result(s) for $TARGET_SHA."
+              jq -r '.runs[]?.results[]? | [.ruleId, (.level // "warning"), .message.text] | @tsv' \
+                "$sarif_file"
+              exit 1
+            fi
+          done
+          echo "Exact-target Scorecard has no result outside the six documented solo-maintainer/write-all governance exceptions."
+
       - name: Create canonical tag through the authenticated GitHub API
         if: >-
           steps.target.outputs.complete != 'true' &&

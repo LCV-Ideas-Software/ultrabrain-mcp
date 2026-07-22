@@ -791,6 +791,32 @@ jobs:
             ' "$json_file"
           }
 
+          wait_for_created_release() {
+            local expected_release_id="$1"
+            local release_visibility_attempt load_status observed_release_id
+            for release_visibility_attempt in {1..12}; do
+              load_status=0
+              load_release || load_status=$?
+              if [ "$load_status" -eq 0 ]; then
+                observed_release_id="$(jq -er '.id' "$release_json")"
+                if [ "$observed_release_id" != "$expected_release_id" ]; then
+                  echo "::error::Newly created release id changed from $expected_release_id to $observed_release_id."
+                  return 2
+                fi
+                return 0
+              fi
+              if [ "$load_status" -ne 1 ]; then
+                return "$load_status"
+              fi
+              if [ "$release_visibility_attempt" -eq 12 ]; then
+                echo "::error::Newly created release $TAG did not become list-visible by its exact id $expected_release_id."
+                return 1
+              fi
+              echo "Waiting for newly created release $TAG to become list-visible ($release_visibility_attempt/12)."
+              sleep 5
+            done
+          }
+
           load_status=0
           assert_immutable_release_policy "release-reconciliation"
           load_release || load_status=$?
@@ -809,7 +835,8 @@ jobs:
               -H "X-GitHub-Api-Version: 2026-03-10" \
               "repos/${GITHUB_REPOSITORY}/releases" \
               --input "$create_payload" >"$release_json"
-            load_release
+            created_release_id="$(jq -er '.id' "$release_json")"
+            wait_for_created_release "$created_release_id"
             echo "Created recoverable draft release $TAG through the release API."
           elif [ "$load_status" -ne 0 ]; then
             exit "$load_status"

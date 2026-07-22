@@ -30,6 +30,19 @@ describe("release workflow invariants", () => {
     expect(publish).toContain('elif [ "$latest_is_reconciled" != "true" ]');
   });
 
+  it("requires owner-enforced immutability and verifies signed release attestations", () => {
+    const policyGate = publish.indexOf("Require owner-enforced immutable GitHub Releases");
+    const npmPublication = publish.indexOf("Publish immutable artifact to npmjs.com");
+    expect(policyGate).toBeGreaterThan(-1);
+    expect(npmPublication).toBeGreaterThan(policyGate);
+    expect(publish).toContain(`repos/\${GITHUB_REPOSITORY}/immutable-releases`);
+    expect(publish).toContain("final_immutable=\"$(jq -er '");
+    expect(publish).toContain('has("immutable")');
+    expect(publish).toContain("assert-safe-gh-release-verifier");
+    expect(publish).toContain('gh release verify "$TAG"');
+    expect(publish).toContain('gh release verify-asset "$TAG" "artifacts/$PACKAGE_TARBALL"');
+  });
+
   it("serializes every main candidate and retains automatic recovery triggers", () => {
     expect(autoTag).toContain("group: auto-tag-main");
     expect(autoTag).toContain("queue: max");

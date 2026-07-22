@@ -3,6 +3,7 @@ import {
   assertCanonicalSha512Sri,
   assertGitHubLatest,
   assertRegistryLatest,
+  assertSafeGitHubCliReleaseVerifierVersion,
   canonicalSha512Sri,
   compareSemVer,
   decideGitHubLatest,
@@ -42,6 +43,13 @@ describe("release policy", () => {
       expect(compareSemVer(ordered[index], ordered[index - 1])).toBeGreaterThan(0);
     }
     expect(compareSemVer("1.2.3+first", "1.2.3+second")).toBe(0);
+  });
+
+  it("rejects GitHub CLI releases affected by token disclosure during attestation verification", () => {
+    expect(() => assertSafeGitHubCliReleaseVerifierVersion("2.92.0")).toThrow(/2\.93\.0/);
+    expect(assertSafeGitHubCliReleaseVerifierVersion("2.93.0")).toBe("2.93.0");
+    expect(assertSafeGitHubCliReleaseVerifierVersion("2.96.0")).toBe("2.96.0");
+    expect(() => assertSafeGitHubCliReleaseVerifierVersion("not-a-version")).toThrow(/parse/);
   });
 
   it("normalizes zero-padded display tags without weakening SemVer", () => {

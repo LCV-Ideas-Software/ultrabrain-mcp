@@ -56,6 +56,41 @@ jobs:
             exit 1
           fi
           echo "Validated protected publish ref: $PUBLISH_REF"
+      - name: Require owner-enforced immutable GitHub Releases
+        env:
+          ADMIN_GH_TOKEN: ${{ secrets.LCV_AUTOMATION_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ADMIN_GH_TOKEN" ]; then
+            echo "::error::LCV_AUTOMATION_TOKEN is required for the pre-publication immutable-release policy gate."
+            exit 1
+          fi
+          policy_error="$RUNNER_TEMP/immutable-release-policy-gate-${GITHUB_RUN_ID}.err"
+          if ! policy_json="$(GH_TOKEN="$ADMIN_GH_TOKEN" gh api --method GET \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "repos/${GITHUB_REPOSITORY}/immutable-releases" 2>"$policy_error")"; then
+            cat "$policy_error" >&2
+            echo "::error::Could not prove owner-enforced immutable releases before external publication."
+            exit 1
+          fi
+          policy_enabled="$(jq -er '
+            if has("enabled") and ((.enabled | type) == "boolean")
+            then (.enabled | tostring)
+            else error("missing or invalid enabled state")
+            end
+          ' <<<"$policy_json")"
+          policy_enforced="$(jq -er '
+            if has("enforced_by_owner") and ((.enforced_by_owner | type) == "boolean")
+            then (.enforced_by_owner | tostring)
+            else error("missing or invalid owner enforcement state")
+            end
+          ' <<<"$policy_json")"
+          if [ "$policy_enabled" != "true" ] || [ "$policy_enforced" != "true" ]; then
+            echo "::error::External publication requires owner-enforced immutable releases (enabled=$policy_enabled enforced_by_owner=$policy_enforced)."
+            exit 1
+          fi
+          echo "Owner-enforced immutable releases proven before any registry or release write."
       - name: Checkout triggering commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -623,6 +658,7 @@ jobs:
       - name: Revalidate identity and reconcile the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMMUTABILITY_TOKEN: ${{ secrets.LCV_AUTOMATION_TOKEN }}
           TAG: ${{ needs.gate.outputs.tag }}
           VERIFIED_SHA: ${{ needs.gate.outputs.sha }}
           PUBLISH_EVENT_REF: ${{ github.ref }}
@@ -675,6 +711,39 @@ jobs:
           echo "GitHub latest decision: candidate=$PACKAGE_VERSION prior=${PRIOR_LATEST_TAG:-missing} promote=$PROMOTE_LATEST."
 
           release_json="$RUNNER_TEMP/release-${GITHUB_RUN_ID}.json"
+          assert_immutable_release_policy() {
+            local phase="$1" policy_json policy_error policy_enabled policy_enforced
+            if [ -z "$IMMUTABILITY_TOKEN" ]; then
+              echo "::error::LCV_AUTOMATION_TOKEN is required to read the administrative immutable-release policy before $phase."
+              exit 1
+            fi
+            policy_error="$RUNNER_TEMP/immutable-release-policy-${phase}-${GITHUB_RUN_ID}.err"
+            if ! policy_json="$(GH_TOKEN="$IMMUTABILITY_TOKEN" gh api --method GET \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "repos/${GITHUB_REPOSITORY}/immutable-releases" 2>"$policy_error")"; then
+              cat "$policy_error" >&2
+              echo "::error::Could not prove that immutable releases are administratively enforced before $phase."
+              exit 1
+            fi
+            policy_enabled="$(jq -er '
+              if has("enabled") and ((.enabled | type) == "boolean")
+              then (.enabled | tostring)
+              else error("missing or invalid enabled state")
+              end
+            ' <<<"$policy_json")"
+            policy_enforced="$(jq -er '
+              if has("enforced_by_owner") and ((.enforced_by_owner | type) == "boolean")
+              then (.enforced_by_owner | tostring)
+              else error("missing or invalid owner enforcement state")
+              end
+            ' <<<"$policy_json")"
+            if [ "$policy_enabled" != "true" ] || [ "$policy_enforced" != "true" ]; then
+              echo "::error::Immutable releases are not owner-enforced before $phase (enabled=$policy_enabled enforced_by_owner=$policy_enforced)."
+              exit 1
+            fi
+          }
+
           load_release() {
             local release_pages matching_releases matching_count
             release_pages="$(gh api --method GET --paginate --slurp \
@@ -697,6 +766,7 @@ jobs:
           }
 
           load_status=0
+          assert_immutable_release_policy "release-reconciliation"
           load_release || load_status=$?
           if [ "$load_status" -eq 1 ]; then
             create_payload="$RUNNER_TEMP/create-release-${GITHUB_RUN_ID}.json"
@@ -831,6 +901,7 @@ jobs:
               '{tag_name: $tag, target_commitish: $target, name: $name, body: $body,
                 draft: false, prerelease: $prerelease, make_latest: $make_latest}' \
               >"$publish_payload"
+            assert_immutable_release_policy "release-patch"
             gh api --method PATCH \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2026-03-10" \
@@ -840,6 +911,7 @@ jobs:
             latest_payload="$RUNNER_TEMP/latest-release-${GITHUB_RUN_ID}.json"
             jq -n --arg make_latest "$PROMOTE_LATEST" \
               '{make_latest: $make_latest}' >"$latest_payload"
+            assert_immutable_release_policy "latest-reconciliation"
             gh api --method PATCH \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2026-03-10" \
@@ -847,8 +919,38 @@ jobs:
               --input "$latest_payload" >"$release_json"
           fi
 
-          # A final authenticated download proves that the public release still
-          # exposes the same asset ID and bytes after publication/latest repair.
+          # Publishing under the owner-enforced immutable-release policy also
+          # creates a signed release attestation. A merely public-but-mutable
+          # release must never satisfy this gate.
+          final_immutable=false
+          for immutability_attempt in {1..12}; do
+            load_release
+            observed_asset_id="$(node scripts/release-policy.mjs release-asset-id \
+              "$release_json" "$release_id" "$TAG" "$VERIFIED_SHA" \
+              "$PACKAGE_TARBALL" "$validated_asset_id" "$PACKAGE_SHA256")"
+            if [ "$observed_asset_id" != "$validated_asset_id" ]; then
+              echo "::error::Published release asset id changed from $validated_asset_id to $observed_asset_id."
+              exit 1
+            fi
+            final_immutable="$(jq -er '
+              if has("immutable") and ((.immutable | type) == "boolean")
+              then (.immutable | tostring)
+              else error("missing or invalid immutable release state")
+              end
+            ' "$release_json")"
+            if [ "$final_immutable" = "true" ]; then
+              break
+            fi
+            if [ "$immutability_attempt" -eq 12 ]; then
+              echo "::error::Published release $TAG did not become immutable; refusing a mutable success state."
+              exit 1
+            fi
+            echo "Waiting for immutable release state for $TAG ($immutability_attempt/12)."
+            sleep 5
+          done
+
+          # A final authenticated download proves that the immutable public
+          # release still exposes the same asset ID and bytes.
           verify_single_asset "$validated_asset_id"
           final_draft="$(jq -er '.draft' "$release_json")"
           final_prerelease="$(jq -er '.prerelease' "$release_json")"
@@ -857,6 +959,45 @@ jobs:
           if [ "$final_draft" != "false" ] || [ "$final_prerelease" != "$PRERELEASE" ] || \
              [ "$final_title" != "$expected_title" ] || [ "$final_body" != "$expected_body" ]; then
             echo "::error::Release $TAG final metadata did not converge without data loss."
+            exit 1
+          fi
+
+          release_attestation_output="$RUNNER_TEMP/release-attestation-${GITHUB_RUN_ID}.out"
+          release_attestation_error="$RUNNER_TEMP/release-attestation-${GITHUB_RUN_ID}.err"
+          asset_attestation_output="$RUNNER_TEMP/release-asset-attestation-${GITHUB_RUN_ID}.out"
+          asset_attestation_error="$RUNNER_TEMP/release-asset-attestation-${GITHUB_RUN_ID}.err"
+          # gh <=2.92.0 can disclose GH_TOKEN during these verification calls
+          # (CVE-2026-48501); fail before networking unless the fix is present.
+          GH_CLI_VERSION="$(gh --version | awk 'NR == 1 && $1 == "gh" && $2 == "version" { print $3 }')"
+          node scripts/release-policy.mjs assert-safe-gh-release-verifier "$GH_CLI_VERSION"
+          echo "Using GitHub CLI $GH_CLI_VERSION for release attestation verification."
+          attestation_verified=false
+          for attestation_attempt in {1..12}; do
+            : >"$release_attestation_output"
+            : >"$release_attestation_error"
+            : >"$asset_attestation_output"
+            : >"$asset_attestation_error"
+            if gh release verify "$TAG" --repo "$GITHUB_REPOSITORY" \
+              >"$release_attestation_output" 2>"$release_attestation_error" && \
+              gh release verify-asset "$TAG" "artifacts/$PACKAGE_TARBALL" \
+                --repo "$GITHUB_REPOSITORY" \
+                >"$asset_attestation_output" 2>"$asset_attestation_error"; then
+              cat "$release_attestation_output"
+              cat "$asset_attestation_output"
+              attestation_verified=true
+              break
+            fi
+            if [ "$attestation_attempt" -eq 12 ]; then
+              cat "$release_attestation_error" >&2
+              cat "$asset_attestation_error" >&2
+              echo "::error::GitHub did not provide a valid signed release and asset attestation for immutable release $TAG."
+              exit 1
+            fi
+            echo "Waiting for the signed release attestation for $TAG ($attestation_attempt/12)."
+            sleep 5
+          done
+          if [ "$attestation_verified" != "true" ]; then
+            echo "::error::Signed release attestation verification did not complete."
             exit 1
           fi
           ACTUAL_LATEST_TAG="$(read_latest_release_tag)"

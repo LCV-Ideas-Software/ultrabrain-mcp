@@ -14,6 +14,7 @@ const SEMVER_PATTERN = new RegExp(
 const DISPLAY_TAG_PATTERN = /^v(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
 const CANONICAL_SHA512_PAYLOAD = /^[A-Za-z0-9+/]{86}==$/;
 const NPM_TAG_PATTERN = /^[A-Za-z][0-9A-Za-z._-]*$/;
+const MINIMUM_SAFE_GH_RELEASE_VERIFIER_VERSION = "2.93.0";
 
 export function parseSemVer(value) {
   if (typeof value !== "string") {
@@ -71,6 +72,21 @@ export function compareSemVer(leftValue, rightValue) {
     if (comparison !== 0) return comparison;
   }
   return 0;
+}
+
+export function assertSafeGitHubCliReleaseVerifierVersion(version) {
+  try {
+    parseSemVer(version);
+  } catch {
+    throw new Error(`Could not parse GitHub CLI version: ${version || "<empty>"}`);
+  }
+  if (compareSemVer(version, MINIMUM_SAFE_GH_RELEASE_VERIFIER_VERSION) < 0) {
+    throw new Error(
+      `GitHub CLI ${version} is unsafe for release attestation verification; ` +
+        `CVE-2026-48501 requires ${MINIMUM_SAFE_GH_RELEASE_VERIFIER_VERSION} or newer`,
+    );
+  }
+  return version;
 }
 
 export function semVerFromDisplayTag(tag) {
@@ -368,6 +384,12 @@ function runCli(args) {
       requireArgument(args, 1, "expected integrity"),
       requireArgument(args, 2, "actual integrity"),
       args[3] || "published artifact",
+    );
+    return;
+  }
+  if (command === "assert-safe-gh-release-verifier") {
+    console.log(
+      assertSafeGitHubCliReleaseVerifierVersion(requireArgument(args, 1, "GitHub CLI version")),
     );
     return;
   }

@@ -781,6 +781,16 @@ jobs:
             jq -e '.[0]' <<<"$matching_releases" >"$release_json"
           }
 
+          read_json_boolean() {
+            local field="$1" json_file="$2"
+            jq -er --arg field "$field" '
+              if has($field) and ((.[$field] | type) == "boolean")
+              then (.[$field] | tostring)
+              else error("missing or invalid " + $field + " state")
+              end
+            ' "$json_file"
+          }
+
           load_status=0
           assert_immutable_release_policy "release-reconciliation"
           load_release || load_status=$?
@@ -827,7 +837,7 @@ jobs:
           }
 
           release_tag="$(jq -er '.tag_name' "$release_json")"
-          release_draft="$(jq -er '.draft' "$release_json")"
+          release_draft="$(read_json_boolean draft "$release_json")"
           release_immutable="$(jq -er '
             if has("immutable") and ((.immutable | type) == "boolean")
             then (.immutable | tostring)
@@ -836,7 +846,7 @@ jobs:
           ' "$release_json")"
           release_title="$(jq -r '.name // ""' "$release_json")"
           release_body="$(jq -r '.body // ""' "$release_json")"
-          release_prerelease="$(jq -er '.prerelease' "$release_json")"
+          release_prerelease="$(read_json_boolean prerelease "$release_json")"
           if [ "$release_tag" != "$TAG" ]; then
             echo "::error::Release tag mismatch (expected=$TAG actual=$release_tag)."
             exit 1
@@ -885,7 +895,7 @@ jobs:
           # Re-read the exact release and artifact immediately before the only
           # visibility mutation. A concurrent extra/replacement asset blocks.
           verify_single_asset "$validated_asset_id"
-          release_draft="$(jq -er '.draft' "$release_json")"
+          release_draft="$(read_json_boolean draft "$release_json")"
           release_immutable="$(jq -er '
             if has("immutable") and ((.immutable | type) == "boolean")
             then (.immutable | tostring)
@@ -894,7 +904,7 @@ jobs:
           ' "$release_json")"
           release_title="$(jq -r '.name // ""' "$release_json")"
           release_body="$(jq -r '.body // ""' "$release_json")"
-          release_prerelease="$(jq -er '.prerelease' "$release_json")"
+          release_prerelease="$(read_json_boolean prerelease "$release_json")"
           if [ "$release_draft" != "true" ] && \
              { [ "$release_title" != "$expected_title" ] || [ "$release_body" != "$expected_body" ] || [ "$release_prerelease" != "$PRERELEASE" ]; }; then
             echo "::error::Published release metadata changed before latest reconciliation."
@@ -978,8 +988,8 @@ jobs:
           # A final authenticated download proves that the immutable public
           # release still exposes the same asset ID and bytes.
           verify_single_asset "$validated_asset_id"
-          final_draft="$(jq -er '.draft' "$release_json")"
-          final_prerelease="$(jq -er '.prerelease' "$release_json")"
+          final_draft="$(read_json_boolean draft "$release_json")"
+          final_prerelease="$(read_json_boolean prerelease "$release_json")"
           final_title="$(jq -r '.name // ""' "$release_json")"
           final_body="$(jq -r '.body // ""' "$release_json")"
           if [ "$final_draft" != "false" ] || [ "$final_prerelease" != "$PRERELEASE" ] || \

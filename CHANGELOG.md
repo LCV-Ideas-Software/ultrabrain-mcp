@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.6 - 2026-07-22
+
+**Patch — boolean-safe immutable release reconciliation.** Release metadata
+validation now converts required JSON booleans to strings before applying
+`jq -e`, so valid `false` values for `draft` and `prerelease` cannot terminate
+the fail-closed shell step before asset upload. A regression test covers every
+initial, pre-publication, and final read. No runtime API or state format
+changes.
+
 ## 1.2.5 - 2026-07-22
 
 **Patch — immutable draft-release recovery.** GitHub Release reconciliation now

@@ -4,26 +4,39 @@ name: Auto-tag on version bump
 # shape and may include prerelease labels; the display tag is derived from the
 # numeric base version.
 #
-# The tag is created only after every always-on push gate succeeds at the exact
-# current main SHA. GitHub does not start a second workflow from a tag created
-# with GITHUB_TOKEN, so this workflow explicitly dispatches publish.yml on the
-# protected tag ref. Re-running this workflow safely redispatches an existing
-# tag only when it still resolves to the exact verified commit.
+# Every run derives one immutable release target from trusted main history. A
+# later main commit or a transient publication failure therefore cannot lose a
+# version bump: queued, scheduled, and manual-main recovery runs converge on
+# the first commit that introduced the still-current version. Existing tags
+# remain authoritative and are never moved or deleted. Publication starts only
+# after every push gate and both CodeQL SARIF categories are clean for that
+# exact target SHA.
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [main]
+  schedule:
+    - cron: "47 * * * *"
+  workflow_dispatch:
+
 permissions: write-all
 concurrency:
-  group: auto-tag-${{ github.event.workflow_run.head_sha }}
+  group: auto-tag-main
+  queue: max
   cancel-in-progress: false
+
 jobs:
   auto-tag:
-    name: Create org-standard tag from package.json version
+    name: Reconcile org-standard tag from package.json version
     if: >-
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main'
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     permissions: write-all
     steps:
@@ -32,12 +45,250 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: Wait for exact-SHA always-on push gates
+      - name: Resolve the trusted main candidate
+        id: trigger
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          PAYLOAD_SHA: ${{ github.event.workflow_run.head_sha }}
           TRIGGER_RUN_ID: ${{ github.event.workflow_run.id }}
           TRIGGER_WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          CI_WORKFLOW_ID: "275133464"
+        run: |
+          set -euo pipefail
+
+          main_sha="$(
+            gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+              --jq '.object.sha'
+          )"
+
+          case "$EVENT_NAME" in
+            workflow_run)
+              if [ "$TRIGGER_WORKFLOW_ID" != "$CI_WORKFLOW_ID" ]; then
+                echo "::error::Unexpected trigger workflow ID $TRIGGER_WORKFLOW_ID; expected $CI_WORKFLOW_ID."
+                exit 1
+              fi
+              trigger_json="$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/runs/$TRIGGER_RUN_ID")"
+              if ! jq -e \
+                --arg sha "$PAYLOAD_SHA" \
+                --arg repo "$GITHUB_REPOSITORY" \
+                --argjson workflow_id "$CI_WORKFLOW_ID" \
+                '.workflow_id == $workflow_id and
+                 .head_sha == $sha and
+                 .head_branch == "main" and
+                 .head_repository.full_name == $repo and
+                 .event == "push" and
+                 .status == "completed" and
+                 .conclusion == "success"' \
+                <<<"$trigger_json" >/dev/null; then
+                echo "::error::The workflow_run payload is not the expected successful CI push run."
+                exit 1
+              fi
+              candidate_sha="$PAYLOAD_SHA"
+              ;;
+            schedule)
+              candidate_sha="$main_sha"
+              ;;
+            workflow_dispatch)
+              if [ "$EVENT_REF" != "refs/heads/main" ]; then
+                echo "::error::Manual recovery must run from refs/heads/main, got $EVENT_REF."
+                exit 1
+              fi
+              candidate_sha="$main_sha"
+              ;;
+            *)
+              echo "::error::Unsupported trigger $EVENT_NAME."
+              exit 1
+              ;;
+          esac
+
+          if [[ ! "$candidate_sha" =~ ^[0-9a-f]{40}$ ]] || [[ ! "$main_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Candidate or main did not resolve to a full commit SHA."
+            exit 1
+          fi
+          comparison="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/compare/${candidate_sha}...${main_sha}")"
+          if ! jq -e --arg target "$candidate_sha" \
+            '(.status == "ahead" or .status == "identical") and .merge_base_commit.sha == $target' \
+            <<<"$comparison" >/dev/null; then
+            echo "::error::Candidate $candidate_sha is not in current main history at $main_sha."
+            exit 1
+          fi
+
+          echo "candidate_sha=$candidate_sha" >> "$GITHUB_OUTPUT"
+          echo "Trusted candidate $candidate_sha is in live main history at $main_sha."
+
+      - name: Checkout trusted candidate with full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.trigger.outputs.candidate_sha }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Setup Node.js 24 for release-policy validation
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Resolve immutable release target
+        id: target
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE_SHA: ${{ steps.trigger.outputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+
+          checked_out_sha="$(git rev-parse HEAD)"
+          if [ "$checked_out_sha" != "$CANDIDATE_SHA" ]; then
+            echo "::error::Checkout $checked_out_sha does not match trusted candidate $CANDIDATE_SHA."
+            exit 1
+          fi
+
+          VERSION="$(node -p "require('./package.json').version")"
+          node scripts/release-policy.mjs validate-semver "$VERSION"
+          TAG="$(node scripts/release-policy.mjs display-tag "$VERSION")"
+          LEGACY_TAG="v${VERSION}"
+
+          tag_exists() {
+            local encoded_tag
+            encoded_tag="$(jq -rn --arg value "$1" '$value | @uri')"
+            gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/git/ref/tags/${encoded_tag}" \
+              >/dev/null 2>&1
+          }
+
+          resolve_tag_sha() {
+            local encoded_tag
+            encoded_tag="$(jq -rn --arg value "$1" '$value | @uri')"
+            gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/commits/${encoded_tag}" \
+              --jq '.sha'
+          }
+
+          canonical_sha=""
+          legacy_sha=""
+          if tag_exists "$TAG"; then
+            canonical_sha="$(resolve_tag_sha "$TAG")"
+          fi
+          if [ "$TAG" != "$LEGACY_TAG" ] && tag_exists "$LEGACY_TAG"; then
+            legacy_sha="$(resolve_tag_sha "$LEGACY_TAG")"
+          fi
+          if [ -n "$canonical_sha" ] && [ -n "$legacy_sha" ] && [ "$canonical_sha" != "$legacy_sha" ]; then
+            echo "::error::Canonical tag $TAG ($canonical_sha) and legacy tag $LEGACY_TAG ($legacy_sha) disagree."
+            exit 1
+          fi
+
+          target_sha="${canonical_sha:-$legacy_sha}"
+          if [ -z "$target_sha" ]; then
+            # Walk only the trusted first-parent main history. The earliest
+            # commit in the contiguous current-version segment is the unique
+            # version-introduction target that later no-op commits may recover.
+            target_sha="$CANDIDATE_SHA"
+            previous_version=""
+            while parent_sha="$(git rev-parse "${target_sha}^1" 2>/dev/null)"; do
+              if ! parent_package="$(git show "${parent_sha}:package.json" 2>/dev/null)"; then
+                break
+              fi
+              parent_version="$(node -e '
+                let input = "";
+                process.stdin.setEncoding("utf8");
+                process.stdin.on("data", (chunk) => { input += chunk; });
+                process.stdin.on("end", () => process.stdout.write(JSON.parse(input).version));
+              ' <<<"$parent_package")"
+              if [ "$parent_version" != "$VERSION" ]; then
+                previous_version="$parent_version"
+                break
+              fi
+              target_sha="$parent_sha"
+            done
+
+            if [ -n "$previous_version" ]; then
+              node --input-type=module - "$VERSION" "$previous_version" <<'NODE'
+          import { compareSemVer } from "./scripts/release-policy.mjs";
+          const [candidate, previous] = process.argv.slice(2);
+          if (compareSemVer(candidate, previous) <= 0) {
+            throw new Error(`Release version ${candidate} must be greater than first-parent version ${previous}`);
+          }
+          NODE
+            fi
+            echo "Recovered version-introduction target $target_sha for $VERSION."
+          fi
+
+          if [[ ! "$target_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Release target is not a full commit SHA: $target_sha."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$target_sha" "$CANDIDATE_SHA"; then
+            echo "::error::Release target $target_sha is not an ancestor of candidate $CANDIDATE_SHA."
+            exit 1
+          fi
+          target_package="$(git show "${target_sha}:package.json")"
+          target_version="$(node -e '
+            let input = "";
+            process.stdin.setEncoding("utf8");
+            process.stdin.on("data", (chunk) => { input += chunk; });
+            process.stdin.on("end", () => process.stdout.write(JSON.parse(input).version));
+          ' <<<"$target_package")"
+          if [ "$target_version" != "$VERSION" ]; then
+            echo "::error::Target $target_sha contains package version $target_version, expected $VERSION."
+            exit 1
+          fi
+
+          canonical_exists=false
+          if [ -n "$canonical_sha" ]; then
+            canonical_exists=true
+          fi
+
+          # A published canonical release with exactly the immutable package
+          # asset is the durable completion marker. Draft, missing, legacy-only,
+          # or malformed states are retried through the idempotent publisher.
+          complete=false
+          releases="$(gh api --method GET --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100" |
+            jq -c 'if length == 0 then [] else add end')"
+          canonical_releases="$(jq -c --arg tag "$TAG" '[.[] | select(.tag_name == $tag)]' <<<"$releases")"
+          legacy_releases="$(jq -c --arg tag "$LEGACY_TAG" '[.[] | select(.tag_name == $tag)]' <<<"$releases")"
+          if [ "$(jq 'length' <<<"$canonical_releases")" -gt 1 ] || \
+             [ "$(jq 'length' <<<"$legacy_releases")" -gt 1 ]; then
+            echo "::error::Multiple releases use the canonical or legacy version identity."
+            exit 1
+          fi
+          if [ "$TAG" != "$LEGACY_TAG" ] && \
+             [ "$(jq 'length' <<<"$canonical_releases")" -gt 0 ] && \
+             [ "$(jq 'length' <<<"$legacy_releases")" -gt 0 ]; then
+            echo "::error::Both canonical and legacy releases exist for $VERSION; refusing ambiguous reconciliation."
+            exit 1
+          fi
+          if [ "$canonical_exists" = true ] && [ "$(jq 'length' <<<"$canonical_releases")" -eq 1 ]; then
+            expected_asset="lcv-ideas-software-ultrabrain-mcp-${VERSION}.tgz"
+            if jq -e --arg name "$expected_asset" \
+              '.[0].draft == false and
+               ([.[0].assets[]? | select(
+                 .name == $name and .state == "uploaded" and
+                 ((.digest // "") | startswith("sha256:"))
+               )] | length) == 1 and
+               (.[0].assets | length) == 1' \
+              <<<"$canonical_releases" >/dev/null; then
+              complete=true
+            fi
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "legacy_tag=$LEGACY_TAG" >> "$GITHUB_OUTPUT"
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+          echo "canonical_exists=$canonical_exists" >> "$GITHUB_OUTPUT"
+          echo "complete=$complete" >> "$GITHUB_OUTPUT"
+          echo "Release identity $VERSION -> $TAG targets $target_sha (canonical_exists=$canonical_exists complete=$complete)."
+
+      - name: Wait for exact-target always-on push gates
+        if: steps.target.outputs.complete != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ steps.target.outputs.target_sha }}
           CI_WORKFLOW_ID: "275133464"
           CODEQL_WORKFLOW_ID: "275518911"
           FORMAT_WORKFLOW_ID: "275133467"
@@ -45,21 +296,6 @@ jobs:
           SCORECARD_WORKFLOW_ID: "275133471"
         run: |
           set -euo pipefail
-
-          if [ "$TRIGGER_WORKFLOW_ID" != "$CI_WORKFLOW_ID" ]; then
-            echo "::error::Unexpected trigger workflow ID $TRIGGER_WORKFLOW_ID; expected CI workflow ID $CI_WORKFLOW_ID."
-            exit 1
-          fi
-
-          trigger_json="$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/runs/$TRIGGER_RUN_ID")"
-          if ! jq -e \
-            --arg sha "$VERIFIED_SHA" \
-            --argjson workflow_id "$CI_WORKFLOW_ID" \
-            '.workflow_id == $workflow_id and .head_sha == $sha and .head_branch == "main" and .event == "push"' \
-            <<<"$trigger_json" >/dev/null; then
-            echo "::error::The workflow_run payload does not identify the expected CI push run at $VERIFIED_SHA."
-            exit 1
-          fi
 
           zizmor_workflow_json=""
           for attempt in {1..20}; do
@@ -70,10 +306,9 @@ jobs:
               break
             fi
             if [ "$attempt" -eq 20 ]; then
-              echo "::error::The required Zizmor workflow was not registered as an active default-branch workflow."
+              echo "::error::The required Zizmor workflow is not active on the default branch."
               exit 1
             fi
-            echo "Waiting for the Zizmor workflow to become visible on the default branch ($attempt/20)."
             sleep 3
           done
           ZIZMOR_WORKFLOW_ID="$(jq -er '.id' <<<"$zizmor_workflow_json")"
@@ -95,7 +330,7 @@ jobs:
               --arg path "$expected_path" \
               '.id == $workflow_id and .path == $path and .state == "active"' \
               <<<"$workflow_json" >/dev/null; then
-              echo "::error::Required workflow ID $workflow_id is not the active $expected_path workflow."
+              echo "::error::Required workflow ID $workflow_id is not active at $expected_path."
               exit 1
             fi
           done
@@ -104,9 +339,8 @@ jobs:
           gates_ready=false
           while [ "$SECONDS" -lt "$deadline" ]; do
             pages="$(gh api --method GET --paginate --slurp \
-              "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$VERIFIED_SHA&event=push&per_page=100")"
-            runs="$(jq -ce \
-              --arg sha "$VERIFIED_SHA" \
+              "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$TARGET_SHA&event=push&per_page=100")"
+            runs="$(jq -ce --arg sha "$TARGET_SHA" \
               '[.[].workflow_runs[] | select(.head_sha == $sha and .event == "push")]' \
               <<<"$pages")"
 
@@ -145,195 +379,160 @@ jobs:
             done
 
             pending_observed="$(jq '[.[] | select(.status != "completed")] | length' <<<"$runs")"
-            if [ "$all_required_ready" = "true" ] && [ "$pending_observed" -eq 0 ]; then
-              echo "All six workflow-ID gates succeeded at $VERIFIED_SHA, and every observed push workflow completed without failure."
+            if [ "$all_required_ready" = true ] && [ "$pending_observed" -eq 0 ]; then
+              echo "All six workflow-ID gates succeeded at immutable target $TARGET_SHA."
               gates_ready=true
               break
             fi
-            echo "Waiting for exact-SHA push gates (observed=$(jq 'length' <<<"$runs") pending=$pending_observed)."
+            echo "Waiting for exact-target push gates (observed=$(jq 'length' <<<"$runs") pending=$pending_observed)."
             sleep 15
           done
 
-          if [ "$gates_ready" != "true" ]; then
-            echo "::error::Timed out waiting for all exact-SHA push gates at $VERIFIED_SHA."
+          if [ "$gates_ready" != true ]; then
+            echo "::error::Timed out waiting for push gates at $TARGET_SHA."
             exit 1
           fi
 
-      - name: Checkout the trusted default branch with full history
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - name: Setup Node.js 24 for release-policy validation
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          package-manager-cache: false
-      - name: Verify current main is the CI-verified commit
-        id: verified
+      - name: Require zero results in exact-target CodeQL SARIF
+        if: steps.target.outputs.complete != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+          TARGET_SHA: ${{ steps.target.outputs.target_sha }}
         run: |
           set -euo pipefail
-          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
-          REMOTE_MAIN_SHA="$(
-            gh api --method GET \
-              "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
-              --jq '.object.sha'
-          )"
-          if [ "$CHECKED_OUT_SHA" != "$VERIFIED_SHA" ] || [ "$REMOTE_MAIN_SHA" != "$VERIFIED_SHA" ]; then
-            echo "matches=false" >> "$GITHUB_OUTPUT"
-            echo "main advanced after CI (verified=$VERIFIED_SHA checkout=$CHECKED_OUT_SHA remote=${REMOTE_MAIN_SHA:-missing}); this run will not tag a stale commit."
-            exit 0
-          fi
-          echo "matches=true" >> "$GITHUB_OUTPUT"
-          echo "Verified current main at successful CI commit $VERIFIED_SHA."
-      - name: Detect an actual package version change
-        if: steps.verified.outputs.matches == 'true'
-        id: version-change
-        run: |
-          set -euo pipefail
-          CURRENT_VERSION="$(node -p "require('./package.json').version")"
-          FIRST_PARENT="$(git rev-list --parents -n 1 HEAD | awk '{print $2}')"
-          if [ -z "$FIRST_PARENT" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "The initial commit establishes package version $CURRENT_VERSION."
-            exit 0
-          fi
-          if PARENT_PACKAGE="$(git show "$FIRST_PARENT:package.json" 2>/dev/null)"; then
-            PARENT_VERSION="$(node -e '
-              let input = "";
-              process.stdin.setEncoding("utf8");
-              process.stdin.on("data", (chunk) => { input += chunk; });
-              process.stdin.on("end", () => process.stdout.write(JSON.parse(input).version));
-            ' <<<"$PARENT_PACKAGE")"
-            if [ "$CURRENT_VERSION" = "$PARENT_VERSION" ]; then
-              echo "changed=false" >> "$GITHUB_OUTPUT"
-              echo "package.json version remains $CURRENT_VERSION; no release tag is required."
-              exit 0
+
+          analyses_ready=false
+          for attempt in {1..12}; do
+            pages="$(gh api --method GET --paginate --slurp \
+              -H "Accept: application/vnd.github+json" \
+              "repos/$GITHUB_REPOSITORY/code-scanning/analyses?per_page=100")"
+            analyses="$(jq -c --arg sha "$TARGET_SHA" \
+              '[.[][] | select(.commit_sha == $sha and .tool.name == "CodeQL")]' \
+              <<<"$pages")"
+            analyses_ready=true
+            for category in "/language:actions" "/language:javascript-typescript"; do
+              analysis="$(jq -c --arg category "$category" \
+                '[.[] | select(.category == $category)] | sort_by(.id) | last // null' \
+                <<<"$analyses")"
+              if [ "$analysis" = null ]; then
+                analyses_ready=false
+                echo "Waiting for CodeQL analysis $category on $TARGET_SHA."
+                continue
+              fi
+              analysis_error="$(jq -r '.error // ""' <<<"$analysis")"
+              if [ -n "$analysis_error" ]; then
+                echo "::error::CodeQL analysis $category failed processing: $analysis_error"
+                exit 1
+              fi
+            done
+            if [ "$analyses_ready" = true ]; then
+              break
             fi
-            echo "Package version changed from $PARENT_VERSION to $CURRENT_VERSION."
-          else
-            echo "The first parent has no package.json; treating $CURRENT_VERSION as a version introduction."
-          fi
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-      - name: Read package.json version and compute display tag
-        if: steps.verified.outputs.matches == 'true' && steps.version-change.outputs.changed == 'true'
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-          VERSION="$(node -p "require('./package.json').version")"
-          node scripts/release-policy.mjs validate-semver "$VERSION"
-          TAG="$(node scripts/release-policy.mjs display-tag "$VERSION")"
-          LEGACY_TAG="v${VERSION}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "legacy_tag=$LEGACY_TAG" >> "$GITHUB_OUTPUT"
-          echo "Detected package version: $VERSION -> display tag: $TAG"
-      - name: Check if tag already exists
-        if: steps.verified.outputs.matches == 'true' && steps.version-change.outputs.changed == 'true'
-        id: check
+            if [ "$attempt" -eq 12 ]; then
+              echo "::error::Both exact-target CodeQL analyses did not become visible."
+              exit 1
+            fi
+            sleep 5
+          done
+
+          for category in "/language:actions" "/language:javascript-typescript"; do
+            analysis_id="$(jq -er --arg category "$category" \
+              '[.[] | select(.category == $category)] | sort_by(.id) | last | .id' \
+              <<<"$analyses")"
+            sarif_file="$RUNNER_TEMP/codeql-${analysis_id}.sarif"
+            gh api --method GET -H "Accept: application/sarif+json" \
+              "repos/$GITHUB_REPOSITORY/code-scanning/analyses/$analysis_id" >"$sarif_file"
+            result_count="$(jq '[.runs[]?.results[]?] | length' "$sarif_file")"
+            if [ "$result_count" -ne 0 ]; then
+              echo "::error::CodeQL $category contains $result_count result(s) for $TARGET_SHA."
+              jq -r '.runs[]?.results[]? | [.ruleId, (.level // "warning"), .message.text] | @tsv' \
+                "$sarif_file"
+              exit 1
+            fi
+          done
+          echo "Both exact-target CodeQL SARIF analyses contain zero results for $TARGET_SHA."
+
+      - name: Create canonical tag through the authenticated GitHub API
+        if: >-
+          steps.target.outputs.complete != 'true' &&
+          steps.target.outputs.canonical_exists != 'true'
         env:
-          TAG: ${{ steps.version.outputs.tag }}
-          LEGACY_TAG: ${{ steps.version.outputs.legacy_tag }}
-          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.target.outputs.tag }}
+          TARGET_SHA: ${{ steps.target.outputs.target_sha }}
         run: |
           set -euo pipefail
-          resolve_remote_tag() {
-            local tag="$1"
-            local direct peeled
-            direct="$(git ls-remote --tags origin "refs/tags/${tag}" | awk '{print $1}')"
-            peeled="$(git ls-remote --tags origin "refs/tags/${tag}^{}" | awk '{print $1}')"
-            printf '%s' "${peeled:-$direct}"
+
+          assert_target_on_main() {
+            local main_sha comparison
+            main_sha="$(gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+            comparison="$(gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/compare/${TARGET_SHA}...${main_sha}")"
+            jq -e --arg target "$TARGET_SHA" \
+              '(.status == "ahead" or .status == "identical") and .merge_base_commit.sha == $target' \
+              <<<"$comparison" >/dev/null
           }
 
-          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-            EXISTING_SHA="$(resolve_remote_tag "$TAG")"
-            if [ "$EXISTING_SHA" != "$VERIFIED_SHA" ]; then
-              echo "::error::Existing tag ${TAG} resolves to ${EXISTING_SHA:-missing}, expected exact verified SHA $VERIFIED_SHA."
-              exit 1
-            fi
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Tag ${TAG} already exists at exact verified SHA $VERIFIED_SHA; publish.yml will be redispatched idempotently."
-          elif git ls-remote --exit-code --tags origin "refs/tags/${LEGACY_TAG}" >/dev/null 2>&1; then
-            LEGACY_SHA="$(resolve_remote_tag "$LEGACY_TAG")"
-            if [ "$LEGACY_SHA" != "$VERIFIED_SHA" ]; then
-              echo "::error::Legacy tag ${LEGACY_TAG} resolves to ${LEGACY_SHA:-missing}, expected exact verified SHA $VERIFIED_SHA."
-              exit 1
-            fi
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "Legacy tag ${LEGACY_TAG} is valid at $VERIFIED_SHA; the canonical display tag ${TAG} will also be created."
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "Tag ${TAG} does not exist; it will be created."
-          fi
-      - name: Create tag through the GitHub API
-        if: >-
-          steps.verified.outputs.matches == 'true' &&
-          steps.version-change.outputs.changed == 'true' &&
-          steps.check.outputs.exists == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.version.outputs.tag }}
-          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          set -euo pipefail
-          REMOTE_MAIN_SHA="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
-          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
-          if [ "$REMOTE_MAIN_SHA" != "$VERIFIED_SHA" ] || [ "$CHECKED_OUT_SHA" != "$VERIFIED_SHA" ]; then
-            echo "::error::main changed before tag creation (verified=$VERIFIED_SHA checkout=$CHECKED_OUT_SHA remote=${REMOTE_MAIN_SHA:-missing})."
+          resolve_tag_sha() {
+            local encoded_tag
+            encoded_tag="$(jq -rn --arg value "$TAG" '$value | @uri')"
+            gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/commits/${encoded_tag}" --jq '.sha'
+          }
+
+          if ! assert_target_on_main; then
+            echo "::error::Target $TARGET_SHA left main history before tag creation."
             exit 1
           fi
           create_error="$RUNNER_TEMP/create-tag-${GITHUB_RUN_ID}.err"
           if ! gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
             -f ref="refs/tags/${TAG}" \
-            -f sha="$VERIFIED_SHA" >/dev/null 2>"$create_error"; then
-            direct_sha="$(git ls-remote --tags origin "refs/tags/${TAG}" | awk '{print $1}')"
-            peeled_sha="$(git ls-remote --tags origin "refs/tags/${TAG}^{}" | awk '{print $1}')"
-            existing_sha="${peeled_sha:-$direct_sha}"
-            if [ "$existing_sha" != "$VERIFIED_SHA" ]; then
+            -f sha="$TARGET_SHA" >/dev/null 2>"$create_error"; then
+            existing_sha="$(resolve_tag_sha 2>/dev/null || true)"
+            if [ "$existing_sha" != "$TARGET_SHA" ]; then
               cat "$create_error" >&2
-              echo "::error::Tag creation failed and ${TAG} resolves to ${existing_sha:-missing}, not $VERIFIED_SHA."
+              echo "::error::Tag creation failed and $TAG resolves to ${existing_sha:-missing}, not $TARGET_SHA."
               exit 1
             fi
-            echo "Tag ${TAG} was created concurrently at the exact verified SHA; continuing idempotently."
+            echo "Tag $TAG was created concurrently at the exact target; continuing idempotently."
           fi
-          echo "Created lightweight tag ${TAG} at ${VERIFIED_SHA} through the GitHub API."
-      - name: Dispatch publish workflow
-        if: >-
-          steps.verified.outputs.matches == 'true' &&
-          steps.version-change.outputs.changed == 'true'
+          exact_sha="$(resolve_tag_sha)"
+          if [ "$exact_sha" != "$TARGET_SHA" ]; then
+            echo "::error::Canonical tag $TAG resolves to $exact_sha, expected $TARGET_SHA."
+            exit 1
+          fi
+          echo "Canonical lightweight tag $TAG exists at immutable target $TARGET_SHA."
+
+      - name: Dispatch idempotent publish workflow on the canonical tag
+        if: steps.target.outputs.complete != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.version.outputs.tag }}
-          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+          TAG: ${{ steps.target.outputs.tag }}
+          TARGET_SHA: ${{ steps.target.outputs.target_sha }}
         run: |
           set -euo pipefail
-          expected_sha="$VERIFIED_SHA"
-          for attempt in {1..10}; do
-            tag_sha="$(git ls-remote --tags origin "refs/tags/${TAG}" | awk '{print $1}')"
-            peeled_sha="$(git ls-remote --tags origin "refs/tags/${TAG}^{}" | awk '{print $1}')"
-            if [ -n "${tag_sha}" ]; then
-              if [ "${tag_sha}" = "${expected_sha}" ]; then
-                echo "Tag ${TAG} is visible on origin as a lightweight tag at ${expected_sha}."
-                break
-              fi
-              if [ "${peeled_sha}" = "${expected_sha}" ]; then
-                echo "::warning::Tag ${TAG} is annotated but peels to ${expected_sha}; proceeding for compatibility. New auto-created tags are lightweight."
-                break
-              fi
-              echo "::error::Tag ${TAG} points to ${tag_sha} (peeled: ${peeled_sha:-none}), expected ${expected_sha}; refusing to dispatch publish.yml."
-              exit 1
-            fi
-            if [ "$attempt" -eq 10 ]; then
-              echo "::error::Tag ${TAG} was not visible on origin after push; refusing to dispatch publish.yml."
-              exit 1
-            fi
-            echo "Waiting for tag ${TAG} to become visible on origin (${attempt}/10)."
-            sleep 2
-          done
-          gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref "${TAG}"
-          echo "Dispatched publish.yml on protected tag ref ${TAG}; it will publish packages and create the GitHub Release."
+
+          encoded_tag="$(jq -rn --arg value "$TAG" '$value | @uri')"
+          tag_sha="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/commits/${encoded_tag}" --jq '.sha')"
+          if [ "$tag_sha" != "$TARGET_SHA" ]; then
+            echo "::error::Tag $TAG resolves to $tag_sha, expected $TARGET_SHA."
+            exit 1
+          fi
+          main_sha="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          comparison="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/compare/${TARGET_SHA}...${main_sha}")"
+          if ! jq -e --arg target "$TARGET_SHA" \
+            '(.status == "ahead" or .status == "identical") and .merge_base_commit.sha == $target' \
+            <<<"$comparison" >/dev/null; then
+            echo "::error::Target $TARGET_SHA left main history before publish dispatch."
+            exit 1
+          fi
+
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/publish.yml/dispatches" \
+            -f ref="$TAG"
+          echo "Dispatched publish.yml on canonical protected tag $TAG at $TARGET_SHA."
     timeout-minutes: 30

@@ -1,0 +1,588 @@
+name: Recover historical immutable releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Historical tag (1.2.4 is intentionally blocked while its drafts are ambiguous)
+        required: true
+        type: choice
+        options:
+          - v01.02.04
+          - v01.02.05
+          - v01.02.06
+      confirmation:
+        description: Exact confirmation emitted by scripts/historical-release-recovery.mjs
+        required: true
+        type: string
+
+permissions: write-all
+concurrency:
+  group: historical-immutable-release-recovery
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  reject-unsafe-dispatch:
+    name: Reject an unsafe recovery dispatch
+    if: >-
+      ${{ github.event_name != 'workflow_dispatch' ||
+          github.repository != 'LCV-Ideas-Software/ultrabrain-mcp' ||
+          github.repository_id != '1236279848' ||
+          github.actor != 'lcv-leo' ||
+          github.actor_id != '268063598' ||
+          github.triggering_actor != 'lcv-leo' ||
+          github.ref != 'refs/heads/main' ||
+          github.workflow_ref != 'LCV-Ideas-Software/ultrabrain-mcp/.github/workflows/recover-historical-releases.yml@refs/heads/main' ||
+          github.workflow_sha != github.sha }}
+    runs-on: ubuntu-latest
+    permissions: write-all
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+      - name: Reject an untrusted recovery dispatch
+        run: |
+          echo "::error::Historical release recovery must be dispatched by the sole operator from the exact main workflow SHA."
+          exit 1
+
+  recover:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' &&
+          github.repository == 'LCV-Ideas-Software/ultrabrain-mcp' &&
+          github.repository_id == '1236279848' &&
+          github.actor == 'lcv-leo' &&
+          github.actor_id == '268063598' &&
+          github.triggering_actor == 'lcv-leo' &&
+          github.ref == 'refs/heads/main' &&
+          github.workflow_ref == 'LCV-Ideas-Software/ultrabrain-mcp/.github/workflows/recover-historical-releases.yml@refs/heads/main' &&
+          github.workflow_sha == github.sha }}
+    name: Recover one exact historical draft
+    runs-on: ubuntu-latest
+    environment: historical-release-recovery
+    permissions: write-all
+    timeout-minutes: 45
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout the exact trusted main workflow SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js 24 without a package-manager cache
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Recover the exact historical draft
+        env:
+          RECOVERY_GITHUB_TOKEN: ${{ github.token }}
+          ADMIN_GH_TOKEN: ${{ secrets.LCV_AUTOMATION_TOKEN }}
+          RECOVERY_TAG: ${{ inputs.tag }}
+          RECOVERY_CONFIRMATION: ${{ inputs.confirmation }}
+          DISPATCH_EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_REPOSITORY: ${{ github.repository }}
+          DISPATCH_REPOSITORY_ID: ${{ github.repository_id }}
+          DISPATCH_ACTOR: ${{ github.actor }}
+          DISPATCH_ACTOR_ID: ${{ github.actor_id }}
+          DISPATCH_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_SHA: ${{ github.sha }}
+          DISPATCH_WORKFLOW_REF: ${{ github.workflow_ref }}
+          DISPATCH_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+
+          github_token="$RECOVERY_GITHUB_TOKEN"
+          admin_token="$ADMIN_GH_TOKEN"
+          recovery_tag="$RECOVERY_TAG"
+          recovery_confirmation="$RECOVERY_CONFIRMATION"
+          unset RECOVERY_GITHUB_TOKEN ADMIN_GH_TOKEN
+
+          if [ -z "$github_token" ]; then
+            echo "::error::GITHUB_TOKEN is required for exact release recovery."
+            exit 1
+          fi
+          if [ -z "$admin_token" ]; then
+            echo "::error::LCV_AUTOMATION_TOKEN is required for policy and environment verification."
+            exit 1
+          fi
+
+          github_packages_npm_dir=""
+          github_packages_npmrc=""
+          npmjs_npm_dir=""
+          npmjs_npmrc=""
+          cleanup_registry_verification() {
+            local original_status="$?"
+            local cleanup_failed=false
+            trap - EXIT
+            if [ -n "${github_packages_npm_dir:-}" ]; then
+              case "$github_packages_npm_dir" in
+                "${RUNNER_TEMP}"/historical-github-packages.*) ;;
+                *)
+                  echo "::error::Refusing unsafe GitHub Packages npm cleanup path."
+                  exit 1
+                  ;;
+              esac
+              if [ -n "${github_packages_npmrc:-}" ]; then
+                rm -f -- "$github_packages_npmrc" || cleanup_failed=true
+              fi
+              rmdir -- "$github_packages_npm_dir" || cleanup_failed=true
+            fi
+            if [ -n "${npmjs_npm_dir:-}" ]; then
+              case "$npmjs_npm_dir" in
+                "${RUNNER_TEMP}"/historical-npmjs.*) ;;
+                *)
+                  echo "::error::Refusing unsafe npmjs npm cleanup path."
+                  exit 1
+                  ;;
+              esac
+              if [ -n "${npmjs_npmrc:-}" ]; then
+                rm -f -- "$npmjs_npmrc" || cleanup_failed=true
+              fi
+              rmdir -- "$npmjs_npm_dir" || cleanup_failed=true
+            fi
+            if [ "$cleanup_failed" = "true" ]; then
+              echo "::error::Temporary registry verification files were not fully removed."
+              exit 1
+            fi
+            exit "$original_status"
+          }
+          trap cleanup_registry_verification EXIT
+
+          umask 077
+          github_packages_npm_dir="$(mktemp -d "${RUNNER_TEMP}/historical-github-packages.XXXXXX")"
+          github_packages_npmrc="$github_packages_npm_dir/.npmrc"
+          printf '%s\n' \
+            '@lcv-ideas-software:registry=https://npm.pkg.github.com' \
+            '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' \
+            >"$github_packages_npmrc"
+          chmod 600 "$github_packages_npmrc"
+          npmjs_npm_dir="$(mktemp -d "${RUNNER_TEMP}/historical-npmjs.XXXXXX")"
+          npmjs_npmrc="$npmjs_npm_dir/npmrc"
+          printf '%s\n' \
+            '@lcv-ideas-software:registry=https://registry.npmjs.org' \
+            >"$npmjs_npmrc"
+          chmod 600 "$npmjs_npmrc"
+          if [ "$(stat -c '%a' "$github_packages_npmrc")" != "600" ] || \
+             [ "$(stat -c '%a' "$npmjs_npmrc")" != "600" ]; then
+            echo "::error::Temporary npm configuration permissions are not 0600."
+            exit 1
+          fi
+
+          github_api() {
+            GH_TOKEN="$github_token" gh api \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2026-03-10" "$@"
+          }
+          admin_api() {
+            GH_TOKEN="$admin_token" gh api \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2026-03-10" "$@"
+          }
+          github_release() {
+            GH_TOKEN="$github_token" gh release "$@"
+          }
+
+          dispatch_json="$RUNNER_TEMP/historical-release-dispatch-${GITHUB_RUN_ID}.json"
+          jq -n \
+            --arg eventName "$DISPATCH_EVENT_NAME" \
+            --arg repository "$DISPATCH_REPOSITORY" \
+            --arg repositoryId "$DISPATCH_REPOSITORY_ID" \
+            --arg actor "$DISPATCH_ACTOR" \
+            --arg actorId "$DISPATCH_ACTOR_ID" \
+            --arg triggeringActor "$DISPATCH_TRIGGERING_ACTOR" \
+            --arg ref "$DISPATCH_REF" \
+            --arg sha "$DISPATCH_SHA" \
+            --arg workflowRef "$DISPATCH_WORKFLOW_REF" \
+            --arg workflowSha "$DISPATCH_WORKFLOW_SHA" \
+            '{eventName: $eventName, repository: $repository,
+              repositoryId: $repositoryId, actor: $actor, actorId: $actorId,
+              triggeringActor: $triggeringActor, ref: $ref, sha: $sha,
+              workflowRef: $workflowRef, workflowSha: $workflowSha}' \
+            >"$dispatch_json"
+          node scripts/historical-release-recovery.mjs validate-dispatch \
+            "$recovery_tag" "$recovery_confirmation" "$dispatch_json"
+
+          manifest_json="$RUNNER_TEMP/historical-release-manifest-${GITHUB_RUN_ID}.json"
+          node scripts/historical-release-recovery.mjs manifest "$recovery_tag" >"$manifest_json"
+          release_id="$(jq -er '.release.id' "$manifest_json")"
+          source_run_id="$(jq -er '.source.runId' "$manifest_json")"
+          artifact_id="$(jq -er '.source.artifact.id' "$manifest_json")"
+          artifact_archive_sha256="$(jq -er '.source.artifact.archiveSha256' "$manifest_json")"
+          tag_sha="$(jq -er '.tagSha' "$manifest_json")"
+          package_name="@lcv-ideas-software/ultrabrain-mcp"
+          package_version="$(jq -er '.version' "$manifest_json")"
+          package_tarball="$(jq -er '.package.tarball' "$manifest_json")"
+          package_sha256="$(jq -er '.package.sha256' "$manifest_json")"
+          package_sri="$(jq -er '.package.sri' "$manifest_json")"
+
+          latest_manifest_json="$RUNNER_TEMP/latest-release-manifest-${GITHUB_RUN_ID}.json"
+          node scripts/historical-release-recovery.mjs latest-manifest >"$latest_manifest_json"
+          latest_release_tag="$(jq -er '.tag' "$latest_manifest_json")"
+          latest_release_tag_sha="$(jq -er '.tagSha' "$latest_manifest_json")"
+          latest_release_asset_id="$(jq -er '.asset.id' "$latest_manifest_json")"
+          latest_release_asset_name="$(jq -er '.asset.name' "$latest_manifest_json")"
+          latest_release_asset_sha256="$(jq -er '.asset.sha256' "$latest_manifest_json")"
+
+          validate_tag_and_main() {
+            local phase="$1" tag_ref_json tagged_package_json
+            git fetch --force origin \
+              "refs/heads/main:refs/remotes/origin/main" \
+              "refs/tags/${recovery_tag}:refs/tags/${recovery_tag}"
+            current_main_sha="$(git rev-parse refs/remotes/origin/main)"
+            current_tag_sha="$(git rev-parse "refs/tags/${recovery_tag}^{commit}")"
+            checked_out_sha="$(git rev-parse HEAD)"
+            if [ "$checked_out_sha" != "$DISPATCH_SHA" ] || \
+               [ "$current_main_sha" != "$DISPATCH_SHA" ]; then
+              echo "::error::Trusted main changed during $phase (checkout=$checked_out_sha current=$current_main_sha dispatch=$DISPATCH_SHA)."
+              exit 1
+            fi
+            if [ "$current_tag_sha" != "$tag_sha" ]; then
+              echo "::error::Historical tag changed during $phase (expected=$tag_sha actual=$current_tag_sha)."
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$tag_sha" "$current_main_sha"; then
+              echo "::error::Historical tag commit is no longer an ancestor of trusted main during $phase."
+              exit 1
+            fi
+
+            tag_ref_json="$RUNNER_TEMP/tag-ref-${phase}-${GITHUB_RUN_ID}.json"
+            github_api --method GET \
+              "repos/${GITHUB_REPOSITORY}/git/ref/tags/${recovery_tag}" >"$tag_ref_json"
+            jq -e --arg ref "refs/tags/$recovery_tag" --arg sha "$tag_sha" \
+              '.ref == $ref and .object.type == "commit" and .object.sha == $sha' \
+              "$tag_ref_json" >/dev/null
+
+            tagged_package_json="$RUNNER_TEMP/tagged-package-${phase}-${GITHUB_RUN_ID}.json"
+            git show "${tag_sha}:package.json" >"$tagged_package_json"
+            node scripts/historical-release-recovery.mjs validate-package \
+              "$recovery_tag" "$tagged_package_json"
+          }
+
+          validate_policy() {
+            local phase="$1" policy_json
+            policy_json="$RUNNER_TEMP/immutable-policy-${phase}-${GITHUB_RUN_ID}.json"
+            admin_api --method GET \
+              "repos/${GITHUB_REPOSITORY}/immutable-releases" >"$policy_json"
+            node scripts/historical-release-recovery.mjs validate-policy _ "$policy_json"
+          }
+
+          validate_recovery_environment() {
+            local phase="$1" environment_json branch_policies_json
+            environment_json="$RUNNER_TEMP/recovery-environment-${phase}-${GITHUB_RUN_ID}.json"
+            branch_policies_json="$RUNNER_TEMP/recovery-branch-policies-${phase}-${GITHUB_RUN_ID}.json"
+            admin_api --method GET \
+              "repos/${GITHUB_REPOSITORY}/environments/historical-release-recovery" \
+              >"$environment_json"
+            admin_api --method GET \
+              "repos/${GITHUB_REPOSITORY}/environments/historical-release-recovery/deployment-branch-policies?per_page=100" \
+              >"$branch_policies_json"
+            node scripts/historical-release-recovery.mjs validate-environment _ \
+              "$environment_json" "$branch_policies_json" >/dev/null
+          }
+
+          validate_latest() {
+            local phase="$1" latest_json
+            latest_json="$RUNNER_TEMP/latest-release-${phase}-${GITHUB_RUN_ID}.json"
+            github_api --method GET \
+              "repos/${GITHUB_REPOSITORY}/releases/latest" >"$latest_json"
+            node scripts/historical-release-recovery.mjs validate-latest _ "$latest_json" >/dev/null
+          }
+
+          validate_safe_gh() {
+            local phase="$1" gh_cli_version
+            gh_cli_version="$(gh --version | awk 'NR == 1 && $1 == "gh" && $2 == "version" { print $3 }')"
+            node scripts/release-policy.mjs assert-safe-gh-release-verifier "$gh_cli_version"
+            echo "Safe gh release verifier $gh_cli_version confirmed during $phase."
+          }
+
+          verify_latest_attestation() {
+            local phase="$1" latest_dir latest_asset latest_release_attestation
+            local latest_asset_attestation latest_tag_ref_json
+            latest_dir="$RUNNER_TEMP/latest-release-attestation-${phase}-${GITHUB_RUN_ID}"
+            mkdir -m 700 "$latest_dir"
+            latest_tag_ref_json="$latest_dir/tag-ref.json"
+            github_api --method GET \
+              "repos/${GITHUB_REPOSITORY}/git/ref/tags/${latest_release_tag}" \
+              >"$latest_tag_ref_json"
+            jq -e --arg ref "refs/tags/$latest_release_tag" \
+              --arg sha "$latest_release_tag_sha" \
+              '.ref == $ref and .object.type == "commit" and .object.sha == $sha' \
+              "$latest_tag_ref_json" >/dev/null
+
+            latest_asset="$latest_dir/$latest_release_asset_name"
+            github_api --method GET -H "Accept: application/octet-stream" \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${latest_release_asset_id}" \
+              >"$latest_asset"
+            echo "$latest_release_asset_sha256  $latest_asset" | sha256sum --check --strict
+
+            latest_release_attestation="$latest_dir/release-attestation.json"
+            github_release verify "$latest_release_tag" \
+              --repo "$GITHUB_REPOSITORY" --format json >"$latest_release_attestation"
+            node scripts/historical-release-recovery.mjs validate-latest-attestation _ \
+              "$latest_release_attestation"
+
+            latest_asset_attestation="$latest_dir/asset-attestation.json"
+            github_release verify-asset "$latest_release_tag" "$latest_asset" \
+              --repo "$GITHUB_REPOSITORY" --format json >"$latest_asset_attestation"
+            node scripts/historical-release-recovery.mjs validate-latest-attestation _ \
+              "$latest_asset_attestation"
+          }
+
+          validate_source_evidence() {
+            local phase="$1" run_json jobs_json artifacts_json artifact_json artifact_set_json
+            run_json="$RUNNER_TEMP/source-run-${phase}-${GITHUB_RUN_ID}.json"
+            jobs_json="$RUNNER_TEMP/source-jobs-${phase}-${GITHUB_RUN_ID}.json"
+            artifacts_json="$RUNNER_TEMP/source-artifacts-${phase}-${GITHUB_RUN_ID}.json"
+            artifact_json="$RUNNER_TEMP/source-artifact-${phase}-${GITHUB_RUN_ID}.json"
+            artifact_set_json="$RUNNER_TEMP/source-artifact-set-${phase}-${GITHUB_RUN_ID}.json"
+            github_api --method GET \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${source_run_id}" >"$run_json"
+            node scripts/historical-release-recovery.mjs validate-run \
+              "$recovery_tag" "$run_json"
+            github_api --method GET \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${source_run_id}/jobs?per_page=100" \
+              >"$jobs_json"
+            node scripts/historical-release-recovery.mjs validate-jobs \
+              "$recovery_tag" "$jobs_json"
+            github_api --method GET \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${source_run_id}/artifacts?per_page=100" \
+              >"$artifacts_json"
+            node scripts/historical-release-recovery.mjs validate-artifacts \
+              "$recovery_tag" "$artifacts_json"
+            github_api --method GET \
+              "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}" >"$artifact_json"
+            jq -n --slurpfile artifact "$artifact_json" \
+              '{total_count: 1, artifacts: [$artifact[0]]}' >"$artifact_set_json"
+            node scripts/historical-release-recovery.mjs validate-artifacts \
+              "$recovery_tag" "$artifact_set_json"
+          }
+
+          load_release_list() {
+            local phase="$1" release_pages
+            release_pages="$RUNNER_TEMP/release-pages-${phase}-${GITHUB_RUN_ID}.json"
+            github_api --method GET --paginate --slurp \
+              "repos/${GITHUB_REPOSITORY}/releases?per_page=100" >"$release_pages"
+            node scripts/historical-release-recovery.mjs validate-release-list \
+              "$recovery_tag" "$release_pages" >/dev/null
+          }
+
+          load_exact_release() {
+            local phase="$1" output="$2"
+            github_api --method GET \
+              "repos/${GITHUB_REPOSITORY}/releases/${release_id}" >"$output"
+          }
+
+          verify_registry_integrity() {
+            local phase="$1" npmjs_json npmjs_sri github_json github_sri
+            npmjs_json="$(
+              cd "$npmjs_npm_dir"
+              npm view "${package_name}@${package_version}" dist.integrity \
+                --json \
+                --scope="@lcv-ideas-software" \
+                --registry=https://registry.npmjs.org \
+                --userconfig="$npmjs_npmrc"
+            )"
+            npmjs_sri="$(node scripts/release-policy.mjs \
+              normalize-npm-view-integrity "$npmjs_json")"
+            node scripts/release-policy.mjs verify-sri \
+              "$package_sri" "$npmjs_sri" "npmjs.com during $phase"
+
+            github_json="$(
+              cd "$github_packages_npm_dir"
+              NODE_AUTH_TOKEN="$github_token" npm view \
+                "${package_name}@${package_version}" dist.integrity \
+                --json \
+                --scope="@lcv-ideas-software" \
+                --registry=https://npm.pkg.github.com \
+                --userconfig="$github_packages_npmrc"
+            )"
+            github_sri="$(node scripts/release-policy.mjs \
+              normalize-npm-view-integrity "$github_json")"
+            node scripts/release-policy.mjs verify-sri \
+              "$package_sri" "$github_sri" "GitHub Packages during $phase"
+          }
+
+          validate_recovery_environment initial-evidence
+          validate_safe_gh initial-evidence
+          validate_tag_and_main initial-evidence
+          validate_policy initial-evidence
+          validate_latest initial-evidence
+          verify_latest_attestation initial-evidence
+          validate_source_evidence initial-evidence
+          verify_registry_integrity initial-evidence
+
+          artifact_dir="$(mktemp -d "${RUNNER_TEMP}/historical-artifact.XXXXXX")"
+          artifact_zip="$artifact_dir/${artifact_id}.zip"
+          github_api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" >"$artifact_zip"
+          echo "$artifact_archive_sha256  $artifact_zip" | sha256sum --check --strict
+          unzip -Z1 "$artifact_zip" >"$artifact_dir/entries.txt"
+          entry_count="$(wc -l <"$artifact_dir/entries.txt" | tr -d '[:space:]')"
+          if [ "$entry_count" != "1" ] || \
+             [ "$(cat "$artifact_dir/entries.txt")" != "$package_tarball" ]; then
+            echo "::error::The exact source artifact must contain only $package_tarball."
+            exit 1
+          fi
+          artifact_tarball="$artifact_dir/$package_tarball"
+          unzip -p "$artifact_zip" "$package_tarball" >"$artifact_tarball"
+          echo "$package_sha256  $artifact_tarball" | sha256sum --check --strict
+          node scripts/release-policy.mjs verify-file-sri "$artifact_tarball" "$package_sri"
+
+          load_release_list preflight
+          release_json="$RUNNER_TEMP/historical-release-preflight-${GITHUB_RUN_ID}.json"
+          load_exact_release preflight "$release_json"
+          existing_asset_id="$(node scripts/historical-release-recovery.mjs validate-release \
+            "$recovery_tag" "$release_json" preflight)"
+          release_is_draft="$(jq -er '.draft | if type == "boolean" then tostring else error("invalid draft") end' "$release_json")"
+
+          if [ "$release_is_draft" = "true" ] && [ -z "$existing_asset_id" ]; then
+            validate_recovery_environment final-upload-boundary
+            validate_safe_gh final-upload-boundary
+            validate_tag_and_main final-upload-boundary
+            validate_policy final-upload-boundary
+            validate_latest final-upload-boundary
+            verify_latest_attestation final-upload-boundary
+            validate_source_evidence final-upload-boundary
+            verify_registry_integrity final-upload-boundary
+            load_release_list final-upload-boundary
+            load_exact_release final-upload-boundary "$release_json"
+            node scripts/historical-release-recovery.mjs validate-release \
+              "$recovery_tag" "$release_json" empty-draft >/dev/null
+            upload_json="$RUNNER_TEMP/historical-release-upload-${GITHUB_RUN_ID}.json"
+            RECOVERY_GITHUB_TOKEN="$github_token" \
+              node scripts/historical-release-recovery.mjs upload-asset \
+                "$recovery_tag" "$artifact_tarball" >"$upload_json"
+            validated_asset_id="$(jq -er '.id' "$upload_json")"
+          else
+            validated_asset_id="$existing_asset_id"
+          fi
+
+          staged_release_json="$RUNNER_TEMP/historical-release-staged-${GITHUB_RUN_ID}.json"
+          if [ "$release_is_draft" = "true" ]; then
+            load_exact_release staged "$staged_release_json"
+            validated_asset_id="$(node scripts/historical-release-recovery.mjs validate-release \
+              "$recovery_tag" "$staged_release_json" staged "$validated_asset_id")"
+          fi
+
+          verify_release_asset_bytes() {
+            local phase="$1" target
+            target="$RUNNER_TEMP/release-asset-${phase}-${validated_asset_id}-${GITHUB_RUN_ID}.tgz"
+            github_api --method GET -H "Accept: application/octet-stream" \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${validated_asset_id}" >"$target"
+            echo "$package_sha256  $target" | sha256sum --check --strict
+            node scripts/release-policy.mjs verify-file-sri "$target" "$package_sri"
+          }
+          verify_release_asset_bytes staged
+
+          if [ "$release_is_draft" = "true" ]; then
+            echo "pre-publish-revalidation"
+            validate_recovery_environment pre-publish-revalidation
+            validate_tag_and_main pre-publish-revalidation
+            validate_policy pre-publish-revalidation
+            validate_latest pre-publish-revalidation
+            validate_source_evidence pre-publish-revalidation
+            verify_registry_integrity pre-publish-revalidation
+            load_release_list pre-publish-revalidation
+            load_exact_release pre-publish-revalidation "$staged_release_json"
+            node scripts/historical-release-recovery.mjs validate-release \
+              "$recovery_tag" "$staged_release_json" staged "$validated_asset_id" >/dev/null
+            verify_release_asset_bytes pre-publish-revalidation
+
+            publish_payload="$RUNNER_TEMP/historical-release-publish-${GITHUB_RUN_ID}.json"
+            jq -n \
+              '{draft: false, prerelease: false, make_latest: "false"}' \
+              >"$publish_payload"
+
+            validate_recovery_environment final-publish-boundary
+            validate_safe_gh final-publish-boundary
+            validate_policy final-publish-boundary
+            validate_latest final-publish-boundary
+            verify_latest_attestation final-publish-boundary
+            load_release_list final-publish-boundary
+            validate_tag_and_main final-publish-boundary
+            verify_release_asset_bytes final-publish-boundary
+            load_exact_release final-publish-boundary "$staged_release_json"
+            node scripts/historical-release-recovery.mjs validate-release \
+              "$recovery_tag" "$staged_release_json" staged "$validated_asset_id" >/dev/null
+            github_api --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+              --input "$publish_payload" >"$RUNNER_TEMP/historical-release-patch-${GITHUB_RUN_ID}.json"
+          fi
+
+          final_release_json="$RUNNER_TEMP/historical-release-final-${GITHUB_RUN_ID}.json"
+          final_ready=false
+          for immutability_attempt in {1..12}; do
+            load_exact_release final "$final_release_json"
+            node scripts/historical-release-recovery.mjs validate-release \
+              "$recovery_tag" "$final_release_json" published-pending \
+              "$validated_asset_id" >/dev/null
+            observed_immutable="$(jq -er '
+              .immutable | if type == "boolean" then tostring
+              else error("invalid immutable state") end
+            ' "$final_release_json")"
+            if [ "$observed_immutable" = "true" ]; then
+              node scripts/historical-release-recovery.mjs validate-release \
+                "$recovery_tag" "$final_release_json" final \
+                "$validated_asset_id" >/dev/null
+              final_ready=true
+              break
+            fi
+            if [ "$immutability_attempt" -eq 12 ]; then
+              echo "::error::The exact historical release did not become immutable."
+              exit 1
+            fi
+            echo "Waiting for immutable historical release state ($immutability_attempt/12)."
+            sleep 5
+          done
+          if [ "$final_ready" != "true" ]; then
+            echo "::error::Final immutable state was not established."
+            exit 1
+          fi
+
+          validate_tag_and_main final-immutable
+          load_release_list final
+          validate_safe_gh final
+          validate_policy final
+          validate_latest final
+          verify_latest_attestation final
+          verify_release_asset_bytes final
+          verify_registry_integrity final
+
+          attestation_verified=false
+          for attestation_attempt in {1..12}; do
+            release_attestation_json="$RUNNER_TEMP/historical-release-attestation-${attestation_attempt}-${GITHUB_RUN_ID}.json"
+            asset_attestation_json="$RUNNER_TEMP/historical-asset-attestation-${attestation_attempt}-${GITHUB_RUN_ID}.json"
+            if github_release verify "$recovery_tag" --repo "$GITHUB_REPOSITORY" \
+                 --format json >"$release_attestation_json" && \
+               node scripts/historical-release-recovery.mjs validate-attestation \
+                 "$recovery_tag" "$release_attestation_json" && \
+               github_release verify-asset "$recovery_tag" "$artifact_tarball" \
+                 --repo "$GITHUB_REPOSITORY" --format json >"$asset_attestation_json" && \
+               node scripts/historical-release-recovery.mjs validate-attestation \
+                 "$recovery_tag" "$asset_attestation_json"; then
+              attestation_verified=true
+              break
+            fi
+            if [ "$attestation_attempt" -eq 12 ]; then
+              echo "::error::Signed immutable release and asset attestations were not verifiable."
+              exit 1
+            fi
+            echo "Waiting for signed release attestations ($attestation_attempt/12)."
+            sleep 5
+          done
+          if [ "$attestation_verified" != "true" ]; then
+            echo "::error::Final signed attestation gate did not complete."
+            exit 1
+          fi
+
+          echo "Recovered exact release id $release_id for $recovery_tag with asset id $validated_asset_id; v01.02.07 remains the immutable latest release."

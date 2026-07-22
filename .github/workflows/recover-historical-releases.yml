@@ -120,13 +120,15 @@ jobs:
           npmjs_npm_dir=""
           npmjs_npmrc=""
           cleanup_registry_verification() {
+            local original_status="$?"
             local cleanup_failed=false
+            trap - EXIT
             if [ -n "${github_packages_npm_dir:-}" ]; then
               case "$github_packages_npm_dir" in
                 "${RUNNER_TEMP}"/historical-github-packages.*) ;;
                 *)
                   echo "::error::Refusing unsafe GitHub Packages npm cleanup path."
-                  return 1
+                  exit 1
                   ;;
               esac
               if [ -n "${github_packages_npmrc:-}" ]; then
@@ -139,7 +141,7 @@ jobs:
                 "${RUNNER_TEMP}"/historical-npmjs.*) ;;
                 *)
                   echo "::error::Refusing unsafe npmjs npm cleanup path."
-                  return 1
+                  exit 1
                   ;;
               esac
               if [ -n "${npmjs_npmrc:-}" ]; then
@@ -149,8 +151,9 @@ jobs:
             fi
             if [ "$cleanup_failed" = "true" ]; then
               echo "::error::Temporary registry verification files were not fully removed."
-              return 1
+              exit 1
             fi
+            exit "$original_status"
           }
           trap cleanup_registry_verification EXIT
 
@@ -442,9 +445,18 @@ jobs:
           release_is_draft="$(jq -er '.draft | if type == "boolean" then tostring else error("invalid draft") end' "$release_json")"
 
           if [ "$release_is_draft" = "true" ] && [ -z "$existing_asset_id" ]; then
+            validate_recovery_environment final-upload-boundary
             validate_safe_gh final-upload-boundary
+            validate_tag_and_main final-upload-boundary
+            validate_policy final-upload-boundary
             validate_latest final-upload-boundary
             verify_latest_attestation final-upload-boundary
+            validate_source_evidence final-upload-boundary
+            verify_registry_integrity final-upload-boundary
+            load_release_list final-upload-boundary
+            load_exact_release final-upload-boundary "$release_json"
+            node scripts/historical-release-recovery.mjs validate-release \
+              "$recovery_tag" "$release_json" empty-draft >/dev/null
             upload_json="$RUNNER_TEMP/historical-release-upload-${GITHUB_RUN_ID}.json"
             RECOVERY_GITHUB_TOKEN="$github_token" \
               node scripts/historical-release-recovery.mjs upload-asset \
@@ -496,11 +508,11 @@ jobs:
             validate_latest final-publish-boundary
             verify_latest_attestation final-publish-boundary
             load_release_list final-publish-boundary
+            validate_tag_and_main final-publish-boundary
+            verify_release_asset_bytes final-publish-boundary
             load_exact_release final-publish-boundary "$staged_release_json"
             node scripts/historical-release-recovery.mjs validate-release \
               "$recovery_tag" "$staged_release_json" staged "$validated_asset_id" >/dev/null
-            verify_release_asset_bytes final-publish-boundary
-            validate_tag_and_main final-publish-boundary
             github_api --method PATCH \
               "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
               --input "$publish_payload" >"$RUNNER_TEMP/historical-release-patch-${GITHUB_RUN_ID}.json"

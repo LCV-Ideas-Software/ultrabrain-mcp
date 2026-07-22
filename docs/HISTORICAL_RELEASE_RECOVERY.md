@@ -78,11 +78,15 @@ mutation-sensitive checks immediately before publishing the draft:
     tag again and validates both `gh release verify --format json` outputs
     against the same frozen identities.
 
-Immediately before the PATCH, the workflow repeats the immutable policy,
-latest release, complete release listing, exact release snapshot, and exact
-asset-byte checks. It then fetches `main` and the tag again; this main/tag
-identity check is the final operation before the state-only PATCH. Therefore,
-if `main` advances after the asset upload, the run exits while leaving the
+Immediately before the first asset POST, the workflow repeats the environment,
+safe-CLI, `main`/tag, immutable-policy, latest-attestation, source-artifact,
+registry, and unique-release checks. Its final read must prove that the exact
+target is still a mutable draft with no assets. Immediately before the PATCH,
+it repeats the immutable policy, latest release, complete release listing,
+`main`/tag identity, and exact asset-byte checks, then makes a fresh exact
+release read the final operation before the state-only mutation. That last
+snapshot must still contain exactly the one expected asset. Therefore, if
+`main` advances after the asset upload, the run exits while leaving the
 verified asset safely staged on the draft. A later run may revalidate and reuse
 it; the stale run does not publish.
 
@@ -117,6 +121,8 @@ The placeholder remains literal on disk. Only the exact GitHub Packages
 token is confined to immutable-policy and environment API reads and is never
 given to npm. An EXIT trap validates the temporary paths and removes only the
 two exact npmrc files and their empty directories, without recursive deletion.
+The trap disables recursion, preserves a pre-existing failure status, and
+forces a nonzero job result if cleanup itself fails.
 
 GitHub CLI safety is checked during initial evidence collection, repeated at
 the immediate asset-upload and release-PATCH boundaries, and checked again

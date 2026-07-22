@@ -361,7 +361,22 @@ describe("exact release-id reconciliation", () => {
   it("allows an empty draft or the one exact staged asset, and nothing else", () => {
     const item = record();
     expect(validateReleaseSnapshot(releaseSnapshot(), item, "preflight")).toBe("");
+    expect(validateReleaseSnapshot(releaseSnapshot(), item, "empty-draft")).toBe("");
     const asset = releaseAsset();
+    expect(() =>
+      validateReleaseSnapshot(
+        releaseSnapshot("v01.02.05", { assets: [asset] }),
+        item,
+        "empty-draft",
+      ),
+    ).toThrow(/no assets/i);
+    expect(() =>
+      validateReleaseSnapshot(
+        releaseSnapshot("v01.02.05", { draft: false, immutable: true }),
+        item,
+        "empty-draft",
+      ),
+    ).toThrow(/draft/i);
     expect(
       validateReleaseSnapshot(releaseSnapshot("v01.02.05", { assets: [asset] }), item, "staged"),
     ).toBe(String(asset.id));
@@ -543,33 +558,75 @@ describe("recovery workflow safety contract", () => {
     expect(patch).toBeGreaterThan(prePatchRevalidation);
   });
 
-  it("makes the trusted main and tag identity the final gate before publication", () => {
+  it("makes the exact staged release the final gate before publication", () => {
     const patch = workflow.indexOf("--method PATCH");
-    const boundary = workflow.lastIndexOf("validate_tag_and_main final-publish-boundary", patch);
-    const boundaryPrefix = workflow.slice(0, boundary);
-    const boundaryToPatch = workflow.slice(boundary, patch);
-    expect(boundary).toBeGreaterThan(workflow.indexOf("pre-publish-revalidation"));
-    expect(boundaryPrefix.lastIndexOf("validate_policy final-publish-boundary")).toBeGreaterThan(
+    const prePublish = workflow.indexOf("pre-publish-revalidation");
+    const tagBoundary = workflow.lastIndexOf("validate_tag_and_main final-publish-boundary", patch);
+    const assetBoundary = workflow.lastIndexOf(
+      "verify_release_asset_bytes final-publish-boundary",
+      patch,
+    );
+    const exactReleaseBoundary = workflow.lastIndexOf(
+      'load_exact_release final-publish-boundary "$staged_release_json"',
+      patch,
+    );
+    const finalValidation = workflow.lastIndexOf(
+      '"$recovery_tag" "$staged_release_json" staged "$validated_asset_id" >/dev/null',
+      patch,
+    );
+    const validationToPatch = workflow.slice(
+      finalValidation +
+        '"$recovery_tag" "$staged_release_json" staged "$validated_asset_id" >/dev/null'.length,
+      patch,
+    );
+    expect(tagBoundary).toBeGreaterThan(prePublish);
+    expect(workflow.lastIndexOf("validate_policy final-publish-boundary", patch)).toBeGreaterThan(
       workflow.indexOf("pre-publish-revalidation"),
     );
-    expect(boundaryPrefix.lastIndexOf("validate_latest final-publish-boundary")).toBeGreaterThan(
+    expect(workflow.lastIndexOf("validate_latest final-publish-boundary", patch)).toBeGreaterThan(
       workflow.indexOf("pre-publish-revalidation"),
     );
-    expect(
-      boundaryPrefix.lastIndexOf(
-        'load_exact_release final-publish-boundary "$staged_release_json"',
-      ),
-    ).toBeGreaterThan(workflow.indexOf("pre-publish-revalidation"));
-    expect(
-      boundaryPrefix.lastIndexOf("verify_release_asset_bytes final-publish-boundary"),
-    ).toBeGreaterThan(workflow.indexOf("pre-publish-revalidation"));
-    expect(boundaryToPatch).not.toMatch(/\b(?:git|gh|jq|node|npm)\b/);
+    expect(assetBoundary).toBeGreaterThan(tagBoundary);
+    expect(exactReleaseBoundary).toBeGreaterThan(assetBoundary);
+    expect(finalValidation).toBeGreaterThan(exactReleaseBoundary);
+    expect(validationToPatch).not.toMatch(/\b(?:git|gh|jq|node|npm|load_|validate_|verify_)\b/);
+  });
+
+  it("revalidates an exact empty draft immediately before the first asset upload", () => {
+    const branch = workflow.indexOf('release_is_draft" = "true"');
+    const upload = workflow.indexOf("upload-asset", branch);
+    const environment = workflow.lastIndexOf(
+      "validate_recovery_environment final-upload-boundary",
+      upload,
+    );
+    const tag = workflow.lastIndexOf("validate_tag_and_main final-upload-boundary", upload);
+    const policy = workflow.lastIndexOf("validate_policy final-upload-boundary", upload);
+    const source = workflow.lastIndexOf("validate_source_evidence final-upload-boundary", upload);
+    const registries = workflow.lastIndexOf(
+      "verify_registry_integrity final-upload-boundary",
+      upload,
+    );
+    const releaseList = workflow.lastIndexOf("load_release_list final-upload-boundary", upload);
+    const exactRelease = workflow.lastIndexOf(
+      'load_exact_release final-upload-boundary "$release_json"',
+      upload,
+    );
+    const emptyDraft = workflow.lastIndexOf('"$recovery_tag" "$release_json" empty-draft', upload);
+    expect(environment).toBeGreaterThan(branch);
+    expect(tag).toBeGreaterThan(environment);
+    expect(policy).toBeGreaterThan(tag);
+    expect(source).toBeGreaterThan(policy);
+    expect(registries).toBeGreaterThan(source);
+    expect(releaseList).toBeGreaterThan(registries);
+    expect(exactRelease).toBeGreaterThan(releaseList);
+    expect(emptyDraft).toBeGreaterThan(exactRelease);
+    expect(upload).toBeGreaterThan(emptyDraft);
   });
 
   it("verifies both registries, release bytes, and signed immutable attestations", () => {
     expect(workflow).toContain("npm.pkg.github.com");
     expect(workflow).toContain("registry.npmjs.org");
-    expect(workflow.match(/^\s+verify_registry_integrity [^()]+$/gm)).toHaveLength(3);
+    expect(workflow.match(/^\s+verify_registry_integrity [^()]+$/gm)).toHaveLength(4);
     expect(workflow).toContain("verify-file-sri");
     expect(workflow).toContain('github_release verify "$recovery_tag"');
     expect(workflow).toContain('github_release verify-asset "$recovery_tag"');
@@ -596,6 +653,9 @@ describe("recovery workflow safety contract", () => {
     expect(workflow.match(/GH_TOKEN="\$admin_token" gh api/g)).toHaveLength(1);
     expect(workflow).not.toMatch(/export\s+(?:github_token|admin_token)/);
     expect(workflow).toContain("trap cleanup_registry_verification EXIT");
+    expect(workflow).toContain('local original_status="$?"');
+    expect(workflow).toContain("trap - EXIT");
+    expect(workflow).toContain('exit "$original_status"');
     expect(workflow).not.toContain("rm -rf");
   });
 

@@ -657,7 +657,13 @@ export function validateReleaseSnapshot(release, item, phase, expectedAssetId = 
   exactIdentity(release.author, AUTOMATION, "Historical release author");
   if (!Array.isArray(release.assets)) fail("Historical release assets are missing");
 
-  if (phase === "preflight") {
+  if (phase === "empty-draft") {
+    exactBoolean(release.draft, true, "Empty release draft state");
+    exactBoolean(release.immutable, false, "Empty draft release immutable state");
+    if (release.assets.length !== 0) {
+      fail(`Empty draft release must have no assets, found ${release.assets.length}`);
+    }
+  } else if (phase === "preflight") {
     if (release.draft === true) {
       exactBoolean(release.immutable, false, "Draft release immutable state");
     } else {

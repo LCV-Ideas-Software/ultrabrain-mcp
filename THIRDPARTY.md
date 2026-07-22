@@ -2,8 +2,12 @@
 
 Direct runtime dependencies:
 
-- `@modelcontextprotocol/sdk`, MIT
 - `zod`, MIT
+
+Bundled runtime component and build-only dependencies:
+
+- `@modelcontextprotocol/sdk`, MIT (reachable stdio subset is bundled)
+- `esbuild`, MIT (development only)
 
 Development dependencies:
 
@@ -13,6 +17,9 @@ Development dependencies:
 
 See `package-lock.json` after installation for the full transitive dependency
 tree.
+
+The package build writes the complete license texts for the exact components
+incorporated into the stdio bundle to `dist/THIRD_PARTY_LICENSES.txt`.
 
 Research-only references:
 

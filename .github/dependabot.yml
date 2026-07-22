@@ -21,7 +21,6 @@ updates:
       - stepsecurity-javascript
     schedule:
       interval: "daily"
-      day: "thursday"
       time: "01:00"
       timezone: "America/Los_Angeles"
     open-pull-requests-limit: 10
@@ -42,16 +41,27 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: scope
-    ignore:
-      - dependency-name: "*"
-        update-types:
-          - "version-update:semver-major"
+
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "01:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(python-deps)"
+      include: scope
+    allow:
+      - dependency-name: socketsecurity
+      - dependency-name: gitpython
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: "daily"
-      day: "thursday"
       time: "01:00"
       timezone: "America/Los_Angeles"
     open-pull-requests-limit: 10
@@ -65,7 +75,3 @@ updates:
     commit-message:
       prefix: "chore(actions)"
       include: scope
-    ignore:
-      - dependency-name: "*"
-        update-types:
-          - "version-update:semver-major"

@@ -159,10 +159,9 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout exact verified main commit with full history
+      - name: Checkout the trusted default branch with full history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
           fetch-depth: 0
       - name: Setup Node.js 24 for release-policy validation

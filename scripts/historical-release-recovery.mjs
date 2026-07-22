@@ -729,6 +729,9 @@ export async function uploadReleaseAsset({ item, assetPath, token, fetchImpl = f
       "Content-Type": "application/octet-stream",
       "X-GitHub-Api-Version": "2026-03-10",
     },
+    // This is the intended release-asset upload. `bytes` has already been
+    // checked against the frozen manifest's size, SHA-256 and SHA-512 SRI,
+    // and `url` is constructed from the fixed repository and release ID.
     body: bytes,
     redirect: "error",
   });

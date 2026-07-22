@@ -24,6 +24,7 @@ concurrency:
 
 jobs:
   reject-unsafe-dispatch:
+    name: Reject an unsafe recovery dispatch
     if: >-
       ${{ github.event_name != 'workflow_dispatch' ||
           github.repository != 'LCV-Ideas-Software/ultrabrain-mcp' ||

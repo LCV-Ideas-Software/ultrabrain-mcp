@@ -2,11 +2,6 @@ name: OpenSSF Scorecard
 on:
   push:
     branches: ["main"]
-    paths:
-      - ".github/workflows/**"
-      - ".github/dependabot.yml"
-      - "socketsecurity-requirements.txt"
-      - "SECURITY.md"
   schedule:
     - cron: "37 8 * * 1"
   workflow_dispatch:

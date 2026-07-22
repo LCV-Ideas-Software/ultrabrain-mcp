@@ -172,11 +172,16 @@ jobs:
       - name: Verify current main is the CI-verified commit
         id: verified
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
           CHECKED_OUT_SHA="$(git rev-parse HEAD)"
-          REMOTE_MAIN_SHA="$(git ls-remote --heads origin "refs/heads/main" | awk '{print $1}')"
+          REMOTE_MAIN_SHA="$(
+            gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+              --jq '.object.sha'
+          )"
           if [ "$CHECKED_OUT_SHA" != "$VERIFIED_SHA" ] || [ "$REMOTE_MAIN_SHA" != "$VERIFIED_SHA" ]; then
             echo "matches=false" >> "$GITHUB_OUTPUT"
             echo "main advanced after CI (verified=$VERIFIED_SHA checkout=$CHECKED_OUT_SHA remote=${REMOTE_MAIN_SHA:-missing}); this run will not tag a stale commit."

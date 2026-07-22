@@ -13,16 +13,12 @@ on:
 concurrency:
   group: scorecard-${{ github.ref }}
   cancel-in-progress: true
-permissions:
-  contents: read
+permissions: write-all
 
 jobs:
   scorecard:
     name: OpenSSF Scorecard
-    permissions:
-      contents: read
-      security-events: write
-      id-token: write
+    permissions: write-all
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -31,14 +27,16 @@ jobs:
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
         with:
           results_file: scorecard-results.sarif
           results_format: sarif
-          publish_results: true
+          # OpenSSF's publication API rejects workflows with organization-mandated write-all.
+          # SARIF and artifacts remain enabled below.
+          publish_results: false
       - name: Upload SARIF artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

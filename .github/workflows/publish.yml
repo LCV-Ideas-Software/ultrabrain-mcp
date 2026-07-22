@@ -3,127 +3,243 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag/ref to publish, for example v01.02.00"
-        required: false
-        default: ""
-permissions:
-  contents: read
+permissions: write-all
 concurrency:
-  group: publish-${{ github.event.inputs.tag || github.ref_name }}
+  group: ultrabrain-publish
+  queue: max
   cancel-in-progress: false
-env:
-  # StepSecurity Secure Registry auth for `npm ci`/`npm install` per project .npmrc.
-  # Token is the StepSecurity API key with proxy read scope; never used for publish.
-  STEPSECURITY_NPM_TOKEN: ${{ secrets.STEPSECURITY_NPM_TOKEN }}
 jobs:
   gate:
-    name: Pre-publish gate (test + metadata)
+    name: Pre-publish gate (test + immutable artifact)
     runs-on: ubuntu-latest
+    environment: npm-production
+    permissions: write-all
     outputs:
       name: ${{ steps.meta.outputs.name }}
       version: ${{ steps.meta.outputs.version }}
       tag: ${{ steps.meta.outputs.tag }}
+      sha: ${{ steps.identity.outputs.sha }}
       display_tag: ${{ steps.meta.outputs.display_tag }}
       dist_tag: ${{ steps.meta.outputs.dist_tag }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      package_tarball: ${{ steps.pack.outputs.tarball }}
+      package_sha256: ${{ steps.pack.outputs.sha256 }}
+      package_integrity: ${{ steps.pack.outputs.integrity }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: audit
 
-      - name: Validate publish ref
+      - name: Validate protected tag trigger
         env:
-          PUBLISH_REF: ${{ github.event.inputs.tag || github.ref_name }}
+          PUBLISH_REF: ${{ github.ref_name }}
+          PUBLISH_EVENT_REF: ${{ github.ref }}
+          PUBLISH_REF_TYPE: ${{ github.ref_type }}
+          PUBLISH_REF_PROTECTED: ${{ github.ref_protected }}
         run: |
           set -euo pipefail
-          if [[ ! "$PUBLISH_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::Publish ref must be a version tag (for example v01.02.00), got '$PUBLISH_REF'."
+          if [ "$PUBLISH_REF_TYPE" != "tag" ]; then
+            echo "::error::Publish must be triggered on a tag ref, got type '$PUBLISH_REF_TYPE'."
             exit 1
           fi
-          echo "Validated publish ref: $PUBLISH_REF"
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+          if [ "$PUBLISH_EVENT_REF" != "refs/tags/$PUBLISH_REF" ]; then
+            echo "::error::Publish event ref '$PUBLISH_EVENT_REF' does not match tag '$PUBLISH_REF'."
+            exit 1
+          fi
+          if [ "$PUBLISH_REF_PROTECTED" != "true" ]; then
+            echo "::error::Publish tag '$PUBLISH_REF' is not protected by a GitHub ruleset or tag protection rule."
+            exit 1
+          fi
+          if [[ ! "$PUBLISH_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Publish ref must be a version tag such as v01.02.00 or v01.02.00-rc.1, got '$PUBLISH_REF'."
+            exit 1
+          fi
+          echo "Validated protected publish ref: $PUBLISH_REF"
+      - name: Checkout triggering commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
-      - name: Setup Node.js 24
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+          persist-credentials: false
+      - name: Verify tag, checkout, trigger, and main ancestry
+        env:
+          PUBLISH_REF: ${{ github.ref_name }}
+          TRIGGER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --force origin "refs/tags/$PUBLISH_REF:refs/tags/$PUBLISH_REF"
+          if ! git show-ref --verify --quiet "refs/tags/$PUBLISH_REF"; then
+            echo "::error::Publish ref '$PUBLISH_REF' is not an existing remote tag."
+            exit 1
+          fi
+          TAG_SHA="$(git rev-parse "refs/tags/$PUBLISH_REF^{commit}")"
+          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          git fetch --force origin "refs/heads/main:refs/remotes/origin/main"
+          MAIN_SHA="$(git rev-parse refs/remotes/origin/main)"
+          if [ "$TAG_SHA" != "$CHECKED_OUT_SHA" ] || [ "$TAG_SHA" != "$TRIGGER_SHA" ]; then
+            echo "::error::Release identity mismatch (tag=$TAG_SHA checkout=$CHECKED_OUT_SHA trigger=$TRIGGER_SHA)."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$TAG_SHA" "$MAIN_SHA"; then
+            echo "::error::Release tag $PUBLISH_REF at $TAG_SHA is not an ancestor of current main $MAIN_SHA."
+            exit 1
+          fi
+          echo "Verified $PUBLISH_REF, checkout, and trigger at immutable commit $TAG_SHA (ancestor of main $MAIN_SHA)."
+      - name: Setup Node.js 24 without a package-manager cache
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          cache: npm
-      - name: Install dependencies
-        run: npm ci --no-audit --no-fund
-      - name: Verify
-        run: npm test
-      - name: Resolve release metadata
+          package-manager-cache: false
+      - name: Resolve exact release metadata
         id: meta
         shell: bash
         env:
-          INPUT_TAG: ${{ github.event.inputs.tag }}
+          PUBLISH_REF: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
           NAME="$(node -p "require('./package.json').name")"
-          DISPLAY_TAG="$(echo "${VERSION%%-*}" | awk -F. '{ printf "v%02d.%02d.%02d", $1, $2, $3 }')"
-          TAG="$INPUT_TAG"
-          if [ -z "$TAG" ] && [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            TAG="${GITHUB_REF#refs/tags/}"
-          fi
-          if [ -z "$TAG" ]; then
-            TAG="$DISPLAY_TAG"
-          fi
+          node scripts/release-policy.mjs validate-semver "$VERSION"
+          DISPLAY_TAG="$(node scripts/release-policy.mjs display-tag "$VERSION")"
+          PRERELEASE=false
+          DIST_TAG=latest
           if [[ "$VERSION" == *-* ]]; then
-            DIST_TAG="${VERSION#*-}"
-            DIST_TAG="${DIST_TAG%%.*}"
-          else
-            DIST_TAG="latest"
+            PRERELEASE=true
+            PRERELEASE_SUFFIX="${VERSION#*-}"
+            DIST_TAG="${PRERELEASE_SUFFIX%%.*}"
+            if [[ "$DIST_TAG" == "latest" || ! "$DIST_TAG" =~ ^[A-Za-z][0-9A-Za-z_-]*$ ]]; then
+              DIST_TAG=prerelease
+            fi
           fi
-          # Release integrity: the published tag must match the package.json-derived
-          # display tag (allowing a prerelease suffix), so a mismatched tag cannot
-          # publish an unrelated version under a misleading GitHub Release name.
-          case "$TAG" in
-            "$DISPLAY_TAG" | "$DISPLAY_TAG"-*) : ;;
-            *)
-              echo "::error::Publish tag '$TAG' does not match the package version display tag '$DISPLAY_TAG' (version $VERSION)."
-              exit 1
-              ;;
-          esac
+          if [ "$PUBLISH_REF" != "$DISPLAY_TAG" ]; then
+            echo "::error::Publish tag '$PUBLISH_REF' does not exactly match package.json version '$VERSION' (expected '$DISPLAY_TAG')."
+            exit 1
+          fi
+          if [ "$PRERELEASE" = "true" ] && [ "$DIST_TAG" = "latest" ]; then
+            echo "::error::A prerelease must never use the npm latest dist-tag."
+            exit 1
+          fi
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "tag=$PUBLISH_REF" >> "$GITHUB_OUTPUT"
           echo "display_tag=$DISPLAY_TAG" >> "$GITHUB_OUTPUT"
           echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
-          echo "Publish metadata: $NAME@$VERSION -> $TAG ($DIST_TAG)"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "Publish metadata: $NAME@$VERSION -> $PUBLISH_REF ($DIST_TAG; prerelease=$PRERELEASE)"
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+        env:
+          STEPSECURITY_NPM_TOKEN: ${{ secrets.STEPSECURITY_NPM_TOKEN }}
+      - name: Verify
+        run: npm test
+      - name: Verify public formatting
+        run: npm run format:public:check
+      - name: Verify package contents
+        run: npm pack --dry-run
+      - name: Revalidate protected release identity after local validation
+        id: identity
+        env:
+          PUBLISH_REF: ${{ github.ref_name }}
+          PUBLISH_EVENT_REF: ${{ github.ref }}
+          PUBLISH_REF_TYPE: ${{ github.ref_type }}
+          PUBLISH_REF_PROTECTED: ${{ github.ref_protected }}
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISH_REF_TYPE" != "tag" ] || [ "$PUBLISH_EVENT_REF" != "refs/tags/$PUBLISH_REF" ] || [ "$PUBLISH_REF_PROTECTED" != "true" ]; then
+            echo "::error::Protected tag trigger identity changed or is invalid after local validation."
+            exit 1
+          fi
+          git fetch --force origin "refs/tags/$PUBLISH_REF:refs/tags/$PUBLISH_REF"
+          TAG_SHA="$(git rev-parse "refs/tags/$PUBLISH_REF^{commit}")"
+          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          git fetch --force origin "refs/heads/main:refs/remotes/origin/main"
+          MAIN_SHA="$(git rev-parse refs/remotes/origin/main)"
+          if [ "$TAG_SHA" != "$CHECKED_OUT_SHA" ]; then
+            echo "::error::Release identity changed after validation (tag=$TAG_SHA checkout=$CHECKED_OUT_SHA)."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$TAG_SHA" "$MAIN_SHA"; then
+            echo "::error::Release tag $PUBLISH_REF at $TAG_SHA is no longer an ancestor of main $MAIN_SHA."
+            exit 1
+          fi
+          echo "sha=$TAG_SHA" >> "$GITHUB_OUTPUT"
+          echo "Protected release identity remains $PUBLISH_REF at immutable commit $TAG_SHA (ancestor of main $MAIN_SHA)."
+      - name: Pack the immutable release artifact
+        id: pack
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          npm pack --pack-destination artifacts
+          mapfile -t tarballs < <(find artifacts -maxdepth 1 -type f -name '*.tgz' -print)
+          if [ "${#tarballs[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one package tarball, found ${#tarballs[@]}."
+            exit 1
+          fi
+          TARBALL="${tarballs[0]}"
+          TARBALL_NAME="$(basename "$TARBALL")"
+          TARBALL_SHA256="$(sha256sum "$TARBALL" | awk '{print $1}')"
+          TARBALL_INTEGRITY="$(node -e '
+            const { createHash } = require("node:crypto");
+            const { readFileSync } = require("node:fs");
+            const bytes = readFileSync(process.argv[1]);
+            process.stdout.write(`sha512-${createHash("sha512").update(bytes).digest("base64")}`);
+          ' "$TARBALL")"
+          node scripts/release-policy.mjs verify-file-sri "$TARBALL" "$TARBALL_INTEGRITY"
+          echo "tarball=$TARBALL_NAME" >> "$GITHUB_OUTPUT"
+          echo "sha256=$TARBALL_SHA256" >> "$GITHUB_OUTPUT"
+          echo "integrity=$TARBALL_INTEGRITY" >> "$GITHUB_OUTPUT"
+          echo "Packed immutable artifact $TARBALL_NAME (sha256=$TARBALL_SHA256; SRI=$TARBALL_INTEGRITY)."
+      - name: Upload immutable package artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-package-tgz
+          path: artifacts/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
     timeout-minutes: 60
+
   publish-npmjs:
-    name: Publish to npmjs.com
+    name: Publish immutable artifact to npmjs.com
     needs: gate
     runs-on: ubuntu-latest
     environment: npm-production
-    permissions:
-      contents: read
-      id-token: write
+    permissions: write-all
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: audit
 
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Checkout immutable release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
-      - name: Setup Node.js 24 for npmjs
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download immutable package artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-package-tgz
+          path: artifacts
+      - name: Setup Node.js 24 for npmjs without a package-manager cache
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
           scope: "@lcv-ideas-software"
-          cache: npm
-      - name: Install dependencies
-        run: npm ci --no-audit --no-fund
+          package-manager-cache: false
+      - name: Verify package artifact digest
+        env:
+          PACKAGE_TARBALL: ${{ needs.gate.outputs.package_tarball }}
+          PACKAGE_SHA256: ${{ needs.gate.outputs.package_sha256 }}
+          PACKAGE_INTEGRITY: ${{ needs.gate.outputs.package_integrity }}
+        run: |
+          set -euo pipefail
+          test -f "artifacts/$PACKAGE_TARBALL"
+          echo "$PACKAGE_SHA256  artifacts/$PACKAGE_TARBALL" | sha256sum --check --strict
+          node scripts/release-policy.mjs verify-file-sri "artifacts/$PACKAGE_TARBALL" "$PACKAGE_INTEGRITY"
       - name: Verify trusted publishing toolchain
         run: |
           set -euo pipefail
@@ -146,28 +262,108 @@ jobs:
         env:
           PACKAGE_NAME: ${{ needs.gate.outputs.name }}
           PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
+          PACKAGE_INTEGRITY: ${{ needs.gate.outputs.package_integrity }}
         run: |
-          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+          set -euo pipefail
+          view_error="$RUNNER_TEMP/npmjs-view-${GITHUB_RUN_ID}.err"
+          if package_view="$(npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version dist.integrity --json --registry=https://registry.npmjs.org 2>"$view_error")"; then
+            normalized_view="$(jq -ce 'if type == "array" and length == 1 then .[0] else . end' <<<"$package_view")"
+            published_version="$(jq -er '.version' <<<"$normalized_view")"
+            published_integrity="$(jq -er '.["dist.integrity"]' <<<"$normalized_view")"
+            if [ "$published_version" != "$PACKAGE_VERSION" ]; then
+              echo "::error::npmjs.com returned version $published_version for ${PACKAGE_NAME}@${PACKAGE_VERSION}."
+              exit 1
+            fi
+            node scripts/release-policy.mjs verify-sri \
+              "$PACKAGE_INTEGRITY" "$published_integrity" \
+              "npmjs.com ${PACKAGE_NAME}@${PACKAGE_VERSION}"
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already exists on npmjs.com; skipping publish."
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already exists on npmjs.com with the exact SRI; skipping publish."
           else
+            if ! grep -Eq 'E404|404 Not Found|HTTP 404' "$view_error"; then
+              cat "$view_error" >&2
+              echo "::error::Could not safely determine npmjs.com package state."
+              exit 1
+            fi
             echo "exists=false" >> "$GITHUB_OUTPUT"
             echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is not published on npmjs.com yet."
           fi
-      - name: Publish (public, with provenance)
+      - name: Choose npmjs.com dist-tag without regressing latest
+        id: npmjs-tag
+        env:
+          PACKAGE_NAME: ${{ needs.gate.outputs.name }}
+          PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
+          PREFERRED_TAG: ${{ needs.gate.outputs.dist_tag }}
+        run: |
+          set -euo pipefail
+          view_error="$RUNNER_TEMP/npmjs-tags-${GITHUB_RUN_ID}.err"
+          if tags_view="$(npm view "$PACKAGE_NAME" dist-tags --json --registry=https://registry.npmjs.org 2>"$view_error")"; then
+            normalized_tags="$(jq -ce 'if type == "array" and length == 1 then .[0] else . end' <<<"$tags_view")"
+            PRIOR_LATEST="$(jq -er 'if type == "object" then (.latest // "") else error("unexpected dist-tags response") end' <<<"$normalized_tags")"
+          else
+            if ! grep -Eq 'E404|404 Not Found|HTTP 404' "$view_error"; then
+              cat "$view_error" >&2
+              echo "::error::Could not safely read npmjs.com dist-tags."
+              exit 1
+            fi
+            PRIOR_LATEST=""
+          fi
+          PUBLISH_TAG="$(node scripts/release-policy.mjs npm-publish-tag \
+            "$PACKAGE_VERSION" "$PREFERRED_TAG" "$PRIOR_LATEST")"
+          echo "prior_latest=$PRIOR_LATEST" >> "$GITHUB_OUTPUT"
+          echo "publish_tag=$PUBLISH_TAG" >> "$GITHUB_OUTPUT"
+          echo "npmjs.com monotonic decision: candidate=$PACKAGE_VERSION prior_latest=${PRIOR_LATEST:-missing} publish_tag=$PUBLISH_TAG."
+      - name: Revalidate identity and publish immutable artifact to npmjs.com
         if: steps.npmjs-version.outputs.exists != 'true'
         env:
-          DIST_TAG: ${{ needs.gate.outputs.dist_tag }}
-        run: npm publish --registry=https://registry.npmjs.org --access public --provenance --tag "$DIST_TAG"
+          PUBLISH_REF: ${{ needs.gate.outputs.tag }}
+          VERIFIED_SHA: ${{ needs.gate.outputs.sha }}
+          PUBLISH_EVENT_REF: ${{ github.ref }}
+          PUBLISH_REF_TYPE: ${{ github.ref_type }}
+          PUBLISH_REF_PROTECTED: ${{ github.ref_protected }}
+          DIST_TAG: ${{ steps.npmjs-tag.outputs.publish_tag }}
+          PACKAGE_TARBALL: ${{ needs.gate.outputs.package_tarball }}
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISH_REF_TYPE" != "tag" ] || [ "$PUBLISH_EVENT_REF" != "refs/tags/$PUBLISH_REF" ] || [ "$PUBLISH_REF_PROTECTED" != "true" ]; then
+            echo "::error::Protected tag trigger identity is no longer valid."
+            exit 1
+          fi
+          git fetch --force origin "refs/tags/$PUBLISH_REF:refs/tags/$PUBLISH_REF"
+          TAG_SHA="$(git rev-parse "refs/tags/$PUBLISH_REF^{commit}")"
+          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          git fetch --force origin "refs/heads/main:refs/remotes/origin/main"
+          MAIN_SHA="$(git rev-parse refs/remotes/origin/main)"
+          if [ "$TAG_SHA" != "$VERIFIED_SHA" ] || [ "$CHECKED_OUT_SHA" != "$VERIFIED_SHA" ]; then
+            echo "::error::Release identity no longer names $VERIFIED_SHA (tag=$TAG_SHA checkout=$CHECKED_OUT_SHA)."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$VERIFIED_SHA" "$MAIN_SHA"; then
+            echo "::error::Release commit $VERIFIED_SHA is not an ancestor of current main $MAIN_SHA."
+            exit 1
+          fi
+          echo "Revalidated $PUBLISH_REF at immutable commit $VERIFIED_SHA (ancestor of main $MAIN_SHA)."
+          npm publish "artifacts/$PACKAGE_TARBALL" --registry=https://registry.npmjs.org --access public --provenance --tag "$DIST_TAG" --ignore-scripts
       - name: Verify npmjs.com public visibility
         env:
           PACKAGE_NAME: ${{ needs.gate.outputs.name }}
           PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
+          PACKAGE_INTEGRITY: ${{ needs.gate.outputs.package_integrity }}
         run: |
           set -euo pipefail
           for attempt in {1..12}; do
-            if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
-              echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is publicly visible on npmjs.com."
+            if package_view="$(npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version dist.integrity --json --registry=https://registry.npmjs.org 2>/dev/null)"; then
+              normalized_view="$(jq -ce 'if type == "array" and length == 1 then .[0] else . end' <<<"$package_view")"
+              published_version="$(jq -er '.version' <<<"$normalized_view")"
+              published_integrity="$(jq -er '.["dist.integrity"]' <<<"$normalized_view")"
+              if [ "$published_version" != "$PACKAGE_VERSION" ]; then
+                echo "::error::npmjs.com exposed version $published_version for ${PACKAGE_NAME}@${PACKAGE_VERSION}."
+                exit 1
+              fi
+              node scripts/release-policy.mjs verify-sri \
+                "$PACKAGE_INTEGRITY" "$published_integrity" \
+                "npmjs.com ${PACKAGE_NAME}@${PACKAGE_VERSION}"
+              echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is publicly visible with the exact SRI."
               exit 0
             fi
             echo "npmjs.com visibility check attempt ${attempt}/12 failed; retrying."
@@ -175,85 +371,244 @@ jobs:
           done
           echo "::error::${PACKAGE_NAME}@${PACKAGE_VERSION} is not publicly visible on npmjs.com."
           exit 1
+      - name: Verify npmjs.com latest remained monotonic
+        env:
+          PACKAGE_NAME: ${{ needs.gate.outputs.name }}
+          PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
+          PRIOR_LATEST: ${{ steps.npmjs-tag.outputs.prior_latest }}
+          PUBLISH_TAG: ${{ steps.npmjs-tag.outputs.publish_tag }}
+        run: |
+          set -euo pipefail
+          tags_view="$(npm view "$PACKAGE_NAME" dist-tags --json --registry=https://registry.npmjs.org)"
+          normalized_tags="$(jq -ce 'if type == "array" and length == 1 then .[0] else . end' <<<"$tags_view")"
+          ACTUAL_LATEST="$(jq -er 'if type == "object" then (.latest // "") else error("unexpected dist-tags response") end' <<<"$normalized_tags")"
+          node scripts/release-policy.mjs assert-registry-latest \
+            "$PACKAGE_VERSION" "$PRIOR_LATEST" "$ACTUAL_LATEST" "$PUBLISH_TAG"
+          echo "npmjs.com latest is monotonic at ${ACTUAL_LATEST:-missing}; candidate was $PACKAGE_VERSION."
     timeout-minutes: 60
+
   publish-gh-packages:
-    name: Publish to GitHub Packages
+    name: Publish immutable artifact to GitHub Packages
     needs: gate
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
+    environment: github-packages-production
+    permissions: write-all
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: audit
 
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Checkout immutable release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
-      - name: Setup Node.js 24 for GitHub Packages
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download immutable package artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-package-tgz
+          path: artifacts
+      - name: Setup Node.js 24 for GitHub Packages without a package-manager cache
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          cache: npm
-      - name: Install dependencies
-        run: npm ci --no-audit --no-fund
-      - name: Select GitHub Packages registry for publish
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@lcv-ideas-software"
+          package-manager-cache: false
+      - name: Verify package artifact digest
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_TARBALL: ${{ needs.gate.outputs.package_tarball }}
+          PACKAGE_SHA256: ${{ needs.gate.outputs.package_sha256 }}
+          PACKAGE_INTEGRITY: ${{ needs.gate.outputs.package_integrity }}
         run: |
           set -euo pipefail
-          npmrc="${RUNNER_TEMP}/npm-github-packages.npmrc"
-          {
-            echo "@lcv-ideas-software:registry=https://npm.pkg.github.com"
-            echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}"
-          } > "$npmrc"
-          echo "NPM_CONFIG_USERCONFIG=$npmrc" >> "$GITHUB_ENV"
-          npm config get @lcv-ideas-software:registry
+          test -f "artifacts/$PACKAGE_TARBALL"
+          echo "$PACKAGE_SHA256  artifacts/$PACKAGE_TARBALL" | sha256sum --check --strict
+          node scripts/release-policy.mjs verify-file-sri "artifacts/$PACKAGE_TARBALL" "$PACKAGE_INTEGRITY"
       - name: Check GitHub Packages version
         id: gh-packages-version
         env:
           PACKAGE_NAME: ${{ needs.gate.outputs.name }}
           PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
+          PACKAGE_INTEGRITY: ${{ needs.gate.outputs.package_integrity }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version --registry=https://npm.pkg.github.com --@lcv-ideas-software:registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+          set -euo pipefail
+          view_error="$RUNNER_TEMP/gh-packages-view-${GITHUB_RUN_ID}.err"
+          if package_view="$(npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version dist.integrity --json --registry=https://npm.pkg.github.com --@lcv-ideas-software:registry=https://npm.pkg.github.com 2>"$view_error")"; then
+            normalized_view="$(jq -ce 'if type == "array" and length == 1 then .[0] else . end' <<<"$package_view")"
+            published_version="$(jq -er '.version' <<<"$normalized_view")"
+            published_integrity="$(jq -er '.["dist.integrity"]' <<<"$normalized_view")"
+            if [ "$published_version" != "$PACKAGE_VERSION" ]; then
+              echo "::error::GitHub Packages returned version $published_version for ${PACKAGE_NAME}@${PACKAGE_VERSION}."
+              exit 1
+            fi
+            node scripts/release-policy.mjs verify-sri \
+              "$PACKAGE_INTEGRITY" "$published_integrity" \
+              "GitHub Packages ${PACKAGE_NAME}@${PACKAGE_VERSION}"
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already exists on GitHub Packages; skipping publish."
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already exists on GitHub Packages with the exact SRI; skipping publish."
           else
+            if ! grep -Eq 'E404|404 Not Found|HTTP 404' "$view_error"; then
+              cat "$view_error" >&2
+              echo "::error::Could not safely determine GitHub Packages state."
+              exit 1
+            fi
             echo "exists=false" >> "$GITHUB_OUTPUT"
             echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is not published on GitHub Packages yet."
           fi
-      - name: Publish (public, with provenance)
+      - name: Choose GitHub Packages dist-tag without regressing latest
+        id: gh-packages-tag
+        env:
+          PACKAGE_NAME: ${{ needs.gate.outputs.name }}
+          PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
+          PREFERRED_TAG: ${{ needs.gate.outputs.dist_tag }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          view_error="$RUNNER_TEMP/gh-packages-tags-${GITHUB_RUN_ID}.err"
+          if tags_view="$(npm view "$PACKAGE_NAME" dist-tags --json \
+            --registry=https://npm.pkg.github.com \
+            --@lcv-ideas-software:registry=https://npm.pkg.github.com 2>"$view_error")"; then
+            normalized_tags="$(jq -ce 'if type == "array" and length == 1 then .[0] else . end' <<<"$tags_view")"
+            PRIOR_LATEST="$(jq -er 'if type == "object" then (.latest // "") else error("unexpected dist-tags response") end' <<<"$normalized_tags")"
+          else
+            if ! grep -Eq 'E404|404 Not Found|HTTP 404' "$view_error"; then
+              cat "$view_error" >&2
+              echo "::error::Could not safely read GitHub Packages dist-tags."
+              exit 1
+            fi
+            PRIOR_LATEST=""
+          fi
+          PUBLISH_TAG="$(node scripts/release-policy.mjs npm-publish-tag \
+            "$PACKAGE_VERSION" "$PREFERRED_TAG" "$PRIOR_LATEST")"
+          echo "prior_latest=$PRIOR_LATEST" >> "$GITHUB_OUTPUT"
+          echo "publish_tag=$PUBLISH_TAG" >> "$GITHUB_OUTPUT"
+          echo "GitHub Packages monotonic decision: candidate=$PACKAGE_VERSION prior_latest=${PRIOR_LATEST:-missing} publish_tag=$PUBLISH_TAG."
+      - name: Revalidate identity and publish the same artifact to GitHub Packages
         if: steps.gh-packages-version.outputs.exists != 'true'
         env:
-          DIST_TAG: ${{ needs.gate.outputs.dist_tag }}
+          PUBLISH_REF: ${{ needs.gate.outputs.tag }}
+          VERIFIED_SHA: ${{ needs.gate.outputs.sha }}
+          PUBLISH_EVENT_REF: ${{ github.ref }}
+          PUBLISH_REF_TYPE: ${{ github.ref_type }}
+          PUBLISH_REF_PROTECTED: ${{ github.ref_protected }}
+          DIST_TAG: ${{ steps.gh-packages-tag.outputs.publish_tag }}
+          PACKAGE_TARBALL: ${{ needs.gate.outputs.package_tarball }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm publish --registry=https://npm.pkg.github.com --@lcv-ideas-software:registry=https://npm.pkg.github.com --access public --provenance --tag "$DIST_TAG"
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISH_REF_TYPE" != "tag" ] || [ "$PUBLISH_EVENT_REF" != "refs/tags/$PUBLISH_REF" ] || [ "$PUBLISH_REF_PROTECTED" != "true" ]; then
+            echo "::error::Protected tag trigger identity is no longer valid."
+            exit 1
+          fi
+          git fetch --force origin "refs/tags/$PUBLISH_REF:refs/tags/$PUBLISH_REF"
+          TAG_SHA="$(git rev-parse "refs/tags/$PUBLISH_REF^{commit}")"
+          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          git fetch --force origin "refs/heads/main:refs/remotes/origin/main"
+          MAIN_SHA="$(git rev-parse refs/remotes/origin/main)"
+          if [ "$TAG_SHA" != "$VERIFIED_SHA" ] || [ "$CHECKED_OUT_SHA" != "$VERIFIED_SHA" ]; then
+            echo "::error::Release identity no longer names $VERIFIED_SHA (tag=$TAG_SHA checkout=$CHECKED_OUT_SHA)."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$VERIFIED_SHA" "$MAIN_SHA"; then
+            echo "::error::Release commit $VERIFIED_SHA is not an ancestor of current main $MAIN_SHA."
+            exit 1
+          fi
+          echo "Revalidated $PUBLISH_REF at immutable commit $VERIFIED_SHA (ancestor of main $MAIN_SHA)."
+          npm publish "artifacts/$PACKAGE_TARBALL" --registry=https://npm.pkg.github.com --@lcv-ideas-software:registry=https://npm.pkg.github.com --access public --provenance --tag "$DIST_TAG" --ignore-scripts
+      - name: Verify GitHub Packages visibility
+        env:
+          PACKAGE_NAME: ${{ needs.gate.outputs.name }}
+          PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
+          PACKAGE_INTEGRITY: ${{ needs.gate.outputs.package_integrity }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for attempt in {1..12}; do
+            if package_view="$(npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version dist.integrity --json --registry=https://npm.pkg.github.com --@lcv-ideas-software:registry=https://npm.pkg.github.com 2>/dev/null)"; then
+              normalized_view="$(jq -ce 'if type == "array" and length == 1 then .[0] else . end' <<<"$package_view")"
+              published_version="$(jq -er '.version' <<<"$normalized_view")"
+              published_integrity="$(jq -er '.["dist.integrity"]' <<<"$normalized_view")"
+              if [ "$published_version" != "$PACKAGE_VERSION" ]; then
+                echo "::error::GitHub Packages exposed version $published_version for ${PACKAGE_NAME}@${PACKAGE_VERSION}."
+                exit 1
+              fi
+              node scripts/release-policy.mjs verify-sri \
+                "$PACKAGE_INTEGRITY" "$published_integrity" \
+                "GitHub Packages ${PACKAGE_NAME}@${PACKAGE_VERSION}"
+              echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is visible on GitHub Packages with the exact SRI."
+              exit 0
+            fi
+            echo "GitHub Packages visibility check attempt ${attempt}/12 failed; retrying."
+            sleep 10
+          done
+          echo "::error::${PACKAGE_NAME}@${PACKAGE_VERSION} is not visible on GitHub Packages."
+          exit 1
+      - name: Verify GitHub Packages latest remained monotonic
+        env:
+          PACKAGE_NAME: ${{ needs.gate.outputs.name }}
+          PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
+          PRIOR_LATEST: ${{ steps.gh-packages-tag.outputs.prior_latest }}
+          PUBLISH_TAG: ${{ steps.gh-packages-tag.outputs.publish_tag }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tags_view="$(npm view "$PACKAGE_NAME" dist-tags --json \
+            --registry=https://npm.pkg.github.com \
+            --@lcv-ideas-software:registry=https://npm.pkg.github.com)"
+          normalized_tags="$(jq -ce 'if type == "array" and length == 1 then .[0] else . end' <<<"$tags_view")"
+          ACTUAL_LATEST="$(jq -er 'if type == "object" then (.latest // "") else error("unexpected dist-tags response") end' <<<"$normalized_tags")"
+          node scripts/release-policy.mjs assert-registry-latest \
+            "$PACKAGE_VERSION" "$PRIOR_LATEST" "$ACTUAL_LATEST" "$PUBLISH_TAG"
+          echo "GitHub Packages latest is monotonic at ${ACTUAL_LATEST:-missing}; candidate was $PACKAGE_VERSION."
     timeout-minutes: 60
+
   github-release:
-    name: Create GitHub Release
+    name: Create GitHub Release from immutable artifact
     needs: [gate, publish-npmjs, publish-gh-packages]
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    environment: github-release-production
+    permissions: write-all
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: audit
 
-      - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Checkout immutable release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download immutable package artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-package-tgz
+          path: artifacts
+      - name: Setup Node.js 24 for release reconciliation
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Verify package artifact digest
+        env:
+          PACKAGE_TARBALL: ${{ needs.gate.outputs.package_tarball }}
+          PACKAGE_SHA256: ${{ needs.gate.outputs.package_sha256 }}
+          PACKAGE_INTEGRITY: ${{ needs.gate.outputs.package_integrity }}
+        run: |
+          set -euo pipefail
+          test -f "artifacts/$PACKAGE_TARBALL"
+          echo "$PACKAGE_SHA256  artifacts/$PACKAGE_TARBALL" | sha256sum --check --strict
+          node scripts/release-policy.mjs verify-file-sri "artifacts/$PACKAGE_TARBALL" "$PACKAGE_INTEGRITY"
       - name: Create release notes
         env:
           PACKAGE_NAME: ${{ needs.gate.outputs.name }}
           PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
+          PACKAGE_INTEGRITY: ${{ needs.gate.outputs.package_integrity }}
         run: |
           cat > release-notes.md <<EOF
           Published package:
@@ -261,12 +616,204 @@ jobs:
           - npmjs.com: https://www.npmjs.com/package/${PACKAGE_NAME}/v/${PACKAGE_VERSION}
           - GitHub Packages: https://github.com/LCV-Ideas-Software/ultrabrain-mcp/packages
 
+          Both registries received the same SHA-256-verified package tarball.
+          Canonical package SRI: ${PACKAGE_INTEGRITY}
           See CHANGELOG.md for the release history.
           EOF
-      - name: Publish GitHub Release
-        uses: step-security/action-gh-release@d2093dbdaf0c6507874908247e14bbc4dee6a72d # v3.0.1
-        with:
-          tag_name: ${{ needs.gate.outputs.tag }}
-          name: ${{ needs.gate.outputs.display_tag }}
-          body_path: release-notes.md
+      - name: Revalidate identity and reconcile the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.gate.outputs.tag }}
+          VERIFIED_SHA: ${{ needs.gate.outputs.sha }}
+          PUBLISH_EVENT_REF: ${{ github.ref }}
+          PUBLISH_REF_TYPE: ${{ github.ref_type }}
+          PUBLISH_REF_PROTECTED: ${{ github.ref_protected }}
+          PACKAGE_VERSION: ${{ needs.gate.outputs.version }}
+          PRERELEASE: ${{ needs.gate.outputs.prerelease }}
+          PACKAGE_TARBALL: ${{ needs.gate.outputs.package_tarball }}
+          PACKAGE_SHA256: ${{ needs.gate.outputs.package_sha256 }}
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISH_REF_TYPE" != "tag" ] || [ "$PUBLISH_EVENT_REF" != "refs/tags/$TAG" ] || [ "$PUBLISH_REF_PROTECTED" != "true" ]; then
+            echo "::error::Protected tag trigger identity is no longer valid."
+            exit 1
+          fi
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          TAG_SHA="$(git rev-parse "refs/tags/$TAG^{commit}")"
+          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          git fetch --force origin "refs/heads/main:refs/remotes/origin/main"
+          MAIN_SHA="$(git rev-parse refs/remotes/origin/main)"
+          if [ "$TAG_SHA" != "$VERIFIED_SHA" ] || [ "$CHECKED_OUT_SHA" != "$VERIFIED_SHA" ]; then
+            echo "::error::Release identity no longer names $VERIFIED_SHA (tag=$TAG_SHA checkout=$CHECKED_OUT_SHA)."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$VERIFIED_SHA" "$MAIN_SHA"; then
+            echo "::error::Release commit $VERIFIED_SHA is not an ancestor of current main $MAIN_SHA."
+            exit 1
+          fi
+          echo "Revalidated $TAG at immutable commit $VERIFIED_SHA (ancestor of main $MAIN_SHA)."
+
+          read_latest_release_tag() {
+            local latest_json latest_error
+            latest_error="$RUNNER_TEMP/latest-release-${GITHUB_RUN_ID}.err"
+            if latest_json="$(gh api --method GET "repos/$GITHUB_REPOSITORY/releases/latest" 2>"$latest_error")"; then
+              jq -er '.tag_name' <<<"$latest_json"
+              return
+            fi
+            if grep -q 'HTTP 404' "$latest_error"; then
+              printf ''
+              return
+            fi
+            cat "$latest_error" >&2
+            echo "::error::Could not determine the current GitHub latest release." >&2
+            return 1
+          }
+
+          PRIOR_LATEST_TAG="$(read_latest_release_tag)"
+          PROMOTE_LATEST="$(node scripts/release-policy.mjs github-latest \
+            "$PACKAGE_VERSION" "$PRIOR_LATEST_TAG")"
+          echo "GitHub latest decision: candidate=$PACKAGE_VERSION prior=${PRIOR_LATEST_TAG:-missing} promote=$PROMOTE_LATEST."
+
+          release_path="repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}"
+          release_json="$RUNNER_TEMP/release-${GITHUB_RUN_ID}.json"
+          release_error="$RUNNER_TEMP/release-${GITHUB_RUN_ID}.err"
+
+          if ! gh api --method GET "$release_path" >"$release_json" 2>"$release_error"; then
+            if ! grep -q 'HTTP 404' "$release_error"; then
+              cat "$release_error" >&2
+              echo "::error::Could not determine whether release $TAG already exists."
+              exit 1
+            fi
+
+            create_flags=(--draft --verify-tag)
+            if [ "$PRERELEASE" = "true" ]; then
+              create_flags+=(--prerelease)
+            fi
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$VERIFIED_SHA" \
+              --title "ultrabrain-mcp $TAG" \
+              --notes-file release-notes.md \
+              "${create_flags[@]}"
+            gh api --method GET "$release_path" >"$release_json"
+            echo "Created recoverable draft release $TAG."
+          fi
+
+          release_tag="$(jq -er '.tag_name' "$release_json")"
+          release_draft="$(jq -er '.draft' "$release_json")"
+          release_prerelease="$(jq -er '.prerelease' "$release_json")"
+          if [ "$release_tag" != "$TAG" ]; then
+            echo "::error::Release lookup returned tag '$release_tag', expected '$TAG'."
+            exit 1
+          fi
+          if [ "$release_prerelease" != "$PRERELEASE" ]; then
+            if [ "$release_draft" != "true" ]; then
+              echo "::error::Published release $TAG has prerelease=$release_prerelease, expected $PRERELEASE."
+              exit 1
+            fi
+            gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --prerelease="$PRERELEASE"
+            gh api --method GET "$release_path" >"$release_json"
+            release_prerelease="$(jq -er '.prerelease' "$release_json")"
+            if [ "$release_prerelease" != "$PRERELEASE" ]; then
+              echo "::error::Could not reconcile draft release classification for $TAG."
+              exit 1
+            fi
+          fi
+
+          matching_assets="$(
+            jq --arg name "$PACKAGE_TARBALL" \
+              '[.assets[]? | select(.name == $name)] | length' \
+              "$release_json"
+          )"
+          unexpected_assets="$(
+            jq --arg name "$PACKAGE_TARBALL" \
+              '[.assets[]? | select(.name != $name)] | length' \
+              "$release_json"
+          )"
+          if [ "$matching_assets" -gt 1 ] || [ "$unexpected_assets" -gt 0 ]; then
+            echo "::error::Release $TAG has an ambiguous asset set (matching=$matching_assets unexpected=$unexpected_assets)."
+            exit 1
+          fi
+          if [ "$matching_assets" -eq 0 ]; then
+            if [ "$release_draft" != "true" ]; then
+              echo "::error::Published release $TAG is missing immutable asset $PACKAGE_TARBALL."
+              exit 1
+            fi
+            gh release upload "$TAG" "artifacts/$PACKAGE_TARBALL" \
+              --repo "$GITHUB_REPOSITORY"
+            gh api --method GET "$release_path" >"$release_json"
+            matching_assets="$(
+              jq --arg name "$PACKAGE_TARBALL" \
+                '[.assets[]? | select(.name == $name)] | length' \
+                "$release_json"
+            )"
+            if [ "$matching_assets" -ne 1 ]; then
+              echo "::error::Draft recovery did not produce exactly one $PACKAGE_TARBALL asset."
+              exit 1
+            fi
+          fi
+
+          asset_state="$(
+            jq -er --arg name "$PACKAGE_TARBALL" \
+              '.assets[] | select(.name == $name) | .state' \
+              "$release_json"
+          )"
+          asset_digest="$(
+            jq -r --arg name "$PACKAGE_TARBALL" \
+              '.assets[] | select(.name == $name) | (.digest // "")' \
+              "$release_json"
+          )"
+          if [ "$asset_state" != "uploaded" ]; then
+            echo "::error::Release asset $PACKAGE_TARBALL is in state '$asset_state', expected 'uploaded'."
+            exit 1
+          fi
+          if [ -n "$asset_digest" ]; then
+            if [ "$asset_digest" != "sha256:$PACKAGE_SHA256" ]; then
+              echo "::error::Release asset digest mismatch (expected sha256:$PACKAGE_SHA256, found $asset_digest)."
+              exit 1
+            fi
+          else
+            mkdir -p "$RUNNER_TEMP/existing-release-asset"
+            gh release download "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern "$PACKAGE_TARBALL" \
+              --dir "$RUNNER_TEMP/existing-release-asset"
+            echo "$PACKAGE_SHA256  $RUNNER_TEMP/existing-release-asset/$PACKAGE_TARBALL" | sha256sum --check --strict
+          fi
+
+          release_draft="$(jq -er '.draft' "$release_json")"
+          if [ "$release_draft" = "true" ]; then
+            CURRENT_LATEST_TAG="$(read_latest_release_tag)"
+            PROMOTE_LATEST="$(node scripts/release-policy.mjs github-latest \
+              "$PACKAGE_VERSION" "$CURRENT_LATEST_TAG")"
+            gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft=false \
+              --prerelease="$PRERELEASE" \
+              --latest="$PROMOTE_LATEST" \
+              --verify-tag
+            gh api --method GET "$release_path" >"$release_json"
+          fi
+
+          final_draft="$(jq -er '.draft' "$release_json")"
+          final_prerelease="$(jq -er '.prerelease' "$release_json")"
+          final_digest="$(
+            jq -r --arg name "$PACKAGE_TARBALL" \
+              '.assets[] | select(.name == $name) | (.digest // "")' \
+              "$release_json"
+          )"
+          if [ "$final_draft" != "false" ] || [ "$final_prerelease" != "$PRERELEASE" ]; then
+            echo "::error::Release $TAG did not converge (draft=$final_draft prerelease=$final_prerelease)."
+            exit 1
+          fi
+          if [ -n "$final_digest" ] && [ "$final_digest" != "sha256:$PACKAGE_SHA256" ]; then
+            echo "::error::Published release asset digest changed unexpectedly: $final_digest."
+            exit 1
+          fi
+          ACTUAL_LATEST_TAG="$(read_latest_release_tag)"
+          node scripts/release-policy.mjs assert-github-latest \
+            "$PACKAGE_VERSION" "$PRIOR_LATEST_TAG" "$ACTUAL_LATEST_TAG" "$PROMOTE_LATEST"
+          echo "Release $TAG is published with verified asset $PACKAGE_TARBALL (sha256:$PACKAGE_SHA256); GitHub latest remains monotonic at ${ACTUAL_LATEST_TAG:-missing}."
     timeout-minutes: 60

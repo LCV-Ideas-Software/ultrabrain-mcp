@@ -8,3 +8,8 @@ Ultrabrain is an LCV-created local MCP reasoning gate for structured engineering
 thought, validation, and review readiness.
 
 No external model API is called by this package.
+
+The MCP stdio entrypoint incorporates the audited, reachable subset of the
+official `@modelcontextprotocol/sdk` and its validation dependencies.
+`dist/THIRD_PARTY_LICENSES.txt`, generated during every package build,
+contains their exact versions and complete license notices.

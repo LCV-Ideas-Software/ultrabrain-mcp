@@ -1,6 +1,6 @@
 {
   "name": "@lcv-ideas-software/ultrabrain-mcp",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "LCV-branded MCP reasoning gate for structured engineering thought, validation, and review readiness.",
   "type": "module",
   "main": "dist/index.js",
@@ -11,7 +11,6 @@
   "files": [
     "dist",
     "docs",
-    "scripts",
     "README.md",
     "LICENSE",
     "NOTICE",
@@ -20,17 +19,18 @@
     "THIRDPARTY.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/bundle-mcp-server.mjs",
     "smoke": "node scripts/smoke.mjs",
     "test:unit": "vitest run",
-    "test": "npm run build && npm run test:unit && npm run smoke",
+    "test:consumer": "node scripts/published-consumer-security-regression.mjs",
+    "test": "npm run build && npm run test:unit && npm run smoke && npm run test:consumer",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "biome": "biome check src scripts test vitest.config.ts",
     "biome:write": "biome check --write src scripts test vitest.config.ts",
     "format:public": "prettier --write \"site/index.html\"",
     "format:public:check": "prettier --check \"site/index.html\"",
     "start": "node dist/index.js",
-    "prepare": "npm run build",
+    "prepack": "npm run build",
     "prepublishOnly": "npm test"
   },
   "keywords": [
@@ -53,15 +53,22 @@
   },
   "homepage": "https://ultrabrain-mcp.lcv.dev",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
     "@types/node": "^25.9.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "esbuild": "^0.28.1",
     "prettier": "^3.8.3",
     "typescript": "^6.0.3",
     "vitest": "^3.2.7"
+  },
+  "overrides": {
+    "@hono/node-server": "2.0.11"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
   },
   "engines": {
     "node": ">=22"

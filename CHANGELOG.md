@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.3 - 2026-07-22
+
+**Security and release hardening.** The npm package now contains a self-contained
+MCP stdio bundle plus its third-party license inventory and is verified from a
+clean consumer install. Dependabot approval, guarded branch refresh, and
+exact-SHA squash merge are delegated to the reviewed central controller. Every
+workflow and job retains the organization-required `write-all` policy while
+using immutable action SHAs, non-persistent checkout credentials, protected
+release environments, and Zizmor 1.28.0 analysis. Release jobs bind npm and
+GitHub Packages integrity to the same immutable tarball and prevent an older or
+prerelease build from replacing the latest stable release.
+
 ## 1.2.2 - 2026-07-21
 
 **Security patch — update the transitive HTTP request parser.** Resolves GHSA-v422-hmwv-36x6 / CVE-2026-12590 by updating `body-parser` from 2.2.2 to 2.3.0 through the existing `@modelcontextprotocol/sdk` → Express dependency chain. The patched parser rejects invalid or `NaN` request-size limits instead of silently disabling body-size enforcement.

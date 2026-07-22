@@ -56,6 +56,43 @@ jobs:
             exit 1
           fi
           echo "Validated protected publish ref: $PUBLISH_REF"
+      - name: Require owner-enforced immutable GitHub Releases
+        env:
+          ADMIN_GH_TOKEN: ${{ secrets.LCV_AUTOMATION_TOKEN }}
+        run: |
+          set -euo pipefail
+          admin_gh_token="$ADMIN_GH_TOKEN"
+          unset ADMIN_GH_TOKEN
+          if [ -z "$admin_gh_token" ]; then
+            echo "::error::LCV_AUTOMATION_TOKEN is required for the pre-publication immutable-release policy gate."
+            exit 1
+          fi
+          policy_error="$RUNNER_TEMP/immutable-release-policy-gate-${GITHUB_RUN_ID}.err"
+          if ! policy_json="$(GH_TOKEN="$admin_gh_token" gh api --method GET \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "repos/${GITHUB_REPOSITORY}/immutable-releases" 2>"$policy_error")"; then
+            cat "$policy_error" >&2
+            echo "::error::Could not prove owner-enforced immutable releases before external publication."
+            exit 1
+          fi
+          policy_enabled="$(jq -er '
+            if has("enabled") and ((.enabled | type) == "boolean")
+            then (.enabled | tostring)
+            else error("missing or invalid enabled state")
+            end
+          ' <<<"$policy_json")"
+          policy_enforced="$(jq -er '
+            if has("enforced_by_owner") and ((.enforced_by_owner | type) == "boolean")
+            then (.enforced_by_owner | tostring)
+            else error("missing or invalid owner enforcement state")
+            end
+          ' <<<"$policy_json")"
+          if [ "$policy_enabled" != "true" ] || [ "$policy_enforced" != "true" ]; then
+            echo "::error::External publication requires owner-enforced immutable releases (enabled=$policy_enabled enforced_by_owner=$policy_enforced)."
+            exit 1
+          fi
+          echo "Owner-enforced immutable releases proven before any registry or release write."
       - name: Checkout triggering commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -343,7 +380,7 @@ jobs:
             exit 1
           fi
           echo "Revalidated $PUBLISH_REF at immutable commit $VERIFIED_SHA (ancestor of main $MAIN_SHA)."
-          npm publish "artifacts/$PACKAGE_TARBALL" --registry=https://registry.npmjs.org --access public --provenance --tag "$DIST_TAG" --ignore-scripts
+          npm publish "./artifacts/$PACKAGE_TARBALL" --registry=https://registry.npmjs.org --access public --provenance --tag "$DIST_TAG" --ignore-scripts
       - name: Verify npmjs.com public visibility
         env:
           PACKAGE_NAME: ${{ needs.gate.outputs.name }}
@@ -518,7 +555,7 @@ jobs:
             exit 1
           fi
           echo "Revalidated $PUBLISH_REF at immutable commit $VERIFIED_SHA (ancestor of main $MAIN_SHA)."
-          npm publish "artifacts/$PACKAGE_TARBALL" --registry=https://npm.pkg.github.com --@lcv-ideas-software:registry=https://npm.pkg.github.com --access public --provenance --tag "$DIST_TAG" --ignore-scripts
+          npm publish "./artifacts/$PACKAGE_TARBALL" --registry=https://npm.pkg.github.com --@lcv-ideas-software:registry=https://npm.pkg.github.com --access public --provenance --tag "$DIST_TAG" --ignore-scripts
       - name: Verify GitHub Packages visibility
         env:
           PACKAGE_NAME: ${{ needs.gate.outputs.name }}
@@ -623,6 +660,7 @@ jobs:
       - name: Revalidate identity and reconcile the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMMUTABILITY_TOKEN: ${{ secrets.LCV_AUTOMATION_TOKEN }}
           TAG: ${{ needs.gate.outputs.tag }}
           VERIFIED_SHA: ${{ needs.gate.outputs.sha }}
           PUBLISH_EVENT_REF: ${{ github.ref }}
@@ -634,6 +672,24 @@ jobs:
           PACKAGE_SHA256: ${{ needs.gate.outputs.package_sha256 }}
         run: |
           set -euo pipefail
+          github_token="$GH_TOKEN"
+          immutability_token="$IMMUTABILITY_TOKEN"
+          unset GH_TOKEN
+          unset IMMUTABILITY_TOKEN
+          if [ -z "$github_token" ]; then
+            echo "::error::GITHUB_TOKEN is required for release reconciliation."
+            exit 1
+          fi
+          if [ -z "$immutability_token" ]; then
+            echo "::error::LCV_AUTOMATION_TOKEN is required for immutable-release verification."
+            exit 1
+          fi
+          github_api() {
+            GH_TOKEN="$github_token" gh api "$@"
+          }
+          github_release() {
+            GH_TOKEN="$github_token" gh release "$@"
+          }
           if [ "$PUBLISH_REF_TYPE" != "tag" ] || [ "$PUBLISH_EVENT_REF" != "refs/tags/$TAG" ] || [ "$PUBLISH_REF_PROTECTED" != "true" ]; then
             echo "::error::Protected tag trigger identity is no longer valid."
             exit 1
@@ -656,7 +712,7 @@ jobs:
           read_latest_release_tag() {
             local latest_json latest_error
             latest_error="$RUNNER_TEMP/latest-release-${GITHUB_RUN_ID}.err"
-            if latest_json="$(gh api --method GET "repos/$GITHUB_REPOSITORY/releases/latest" 2>"$latest_error")"; then
+            if latest_json="$(github_api --method GET "repos/$GITHUB_REPOSITORY/releases/latest" 2>"$latest_error")"; then
               jq -er '.tag_name' <<<"$latest_json"
               return
             fi
@@ -674,64 +730,131 @@ jobs:
             "$PACKAGE_VERSION" "$PRIOR_LATEST_TAG")"
           echo "GitHub latest decision: candidate=$PACKAGE_VERSION prior=${PRIOR_LATEST_TAG:-missing} promote=$PROMOTE_LATEST."
 
-          release_path="repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}"
           release_json="$RUNNER_TEMP/release-${GITHUB_RUN_ID}.json"
-          release_error="$RUNNER_TEMP/release-${GITHUB_RUN_ID}.err"
-
-          if ! gh api --method GET "$release_path" >"$release_json" 2>"$release_error"; then
-            if ! grep -q 'HTTP 404' "$release_error"; then
-              cat "$release_error" >&2
-              echo "::error::Could not determine whether release $TAG already exists."
+          assert_immutable_release_policy() {
+            local phase="$1" policy_json policy_error policy_enabled policy_enforced
+            policy_error="$RUNNER_TEMP/immutable-release-policy-${phase}-${GITHUB_RUN_ID}.err"
+            if ! policy_json="$(GH_TOKEN="$immutability_token" gh api --method GET \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "repos/${GITHUB_REPOSITORY}/immutable-releases" 2>"$policy_error")"; then
+              cat "$policy_error" >&2
+              echo "::error::Could not prove that immutable releases are administratively enforced before $phase."
               exit 1
             fi
-
-            create_flags=(--draft --verify-tag)
-            if [ "$PRERELEASE" = "true" ]; then
-              create_flags+=(--prerelease)
+            policy_enabled="$(jq -er '
+              if has("enabled") and ((.enabled | type) == "boolean")
+              then (.enabled | tostring)
+              else error("missing or invalid enabled state")
+              end
+            ' <<<"$policy_json")"
+            policy_enforced="$(jq -er '
+              if has("enforced_by_owner") and ((.enforced_by_owner | type) == "boolean")
+              then (.enforced_by_owner | tostring)
+              else error("missing or invalid owner enforcement state")
+              end
+            ' <<<"$policy_json")"
+            if [ "$policy_enabled" != "true" ] || [ "$policy_enforced" != "true" ]; then
+              echo "::error::Immutable releases are not owner-enforced before $phase (enabled=$policy_enabled enforced_by_owner=$policy_enforced)."
+              exit 1
             fi
-            gh release create "$TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$VERIFIED_SHA" \
-              --title "ultrabrain-mcp $TAG" \
-              --notes-file release-notes.md \
-              "${create_flags[@]}"
-            gh api --method GET "$release_path" >"$release_json"
-            echo "Created recoverable draft release $TAG."
+          }
+
+          load_release() {
+            local release_pages matching_releases matching_count
+            release_pages="$(github_api --method GET --paginate --slurp \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "repos/${GITHUB_REPOSITORY}/releases?per_page=100")"
+            matching_releases="$(jq -ce --arg tag "$TAG" \
+              '[.[][] | select(.tag_name == $tag)]' \
+              <<<"$release_pages")"
+            matching_count="$(jq -er 'length' <<<"$matching_releases")"
+            if [ "$matching_count" -gt 1 ]; then
+              echo "::error::Found $matching_count releases for exact tag $TAG; refusing ambiguous reconciliation." >&2
+              return 2
+            fi
+            if [ "$matching_count" -eq 0 ]; then
+              printf 'null\n' >"$release_json"
+              return 1
+            fi
+            jq -e '.[0]' <<<"$matching_releases" >"$release_json"
+          }
+
+          load_status=0
+          assert_immutable_release_policy "release-reconciliation"
+          load_release || load_status=$?
+          if [ "$load_status" -eq 1 ]; then
+            create_payload="$RUNNER_TEMP/create-release-${GITHUB_RUN_ID}.json"
+            jq -n \
+              --arg tag "$TAG" \
+              --arg name "ultrabrain-mcp $TAG" \
+              --arg body "$(cat release-notes.md)" \
+              --argjson prerelease "$PRERELEASE" \
+              '{tag_name: $tag, name: $name, body: $body,
+                draft: true, prerelease: $prerelease}' \
+              >"$create_payload"
+            github_api --method POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "repos/${GITHUB_REPOSITORY}/releases" \
+              --input "$create_payload" >"$release_json"
+            load_release
+            echo "Created recoverable draft release $TAG through the release API."
+          elif [ "$load_status" -ne 0 ]; then
+            exit "$load_status"
           fi
+
+          expected_title="ultrabrain-mcp $TAG"
+          expected_body="$(cat release-notes.md)"
+          release_id="$(jq -er '.id' "$release_json")"
+
+          verify_single_asset() {
+            local expected_asset_id="${1:-}"
+            local current_asset_id asset_verify_dir
+            load_release
+            current_asset_id="$(node scripts/release-policy.mjs release-asset-id \
+              "$release_json" "$release_id" "$TAG" \
+              "$PACKAGE_TARBALL" "$expected_asset_id" "$PACKAGE_SHA256")"
+            asset_verify_dir="$(mktemp -d "${RUNNER_TEMP}/release-asset.XXXXXX")"
+            github_api --method GET \
+              -H "Accept: application/octet-stream" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${current_asset_id}" \
+              >"$asset_verify_dir/$PACKAGE_TARBALL"
+            echo "$PACKAGE_SHA256  $asset_verify_dir/$PACKAGE_TARBALL" | sha256sum --check --strict
+            asset_id="$current_asset_id"
+          }
 
           release_tag="$(jq -er '.tag_name' "$release_json")"
           release_draft="$(jq -er '.draft' "$release_json")"
+          release_immutable="$(jq -er '
+            if has("immutable") and ((.immutable | type) == "boolean")
+            then (.immutable | tostring)
+            else error("missing or invalid immutable release state")
+            end
+          ' "$release_json")"
+          release_title="$(jq -r '.name // ""' "$release_json")"
+          release_body="$(jq -r '.body // ""' "$release_json")"
           release_prerelease="$(jq -er '.prerelease' "$release_json")"
           if [ "$release_tag" != "$TAG" ]; then
-            echo "::error::Release lookup returned tag '$release_tag', expected '$TAG'."
+            echo "::error::Release tag mismatch (expected=$TAG actual=$release_tag)."
             exit 1
           fi
-          if [ "$release_prerelease" != "$PRERELEASE" ]; then
-            if [ "$release_draft" != "true" ]; then
-              echo "::error::Published release $TAG has prerelease=$release_prerelease, expected $PRERELEASE."
-              exit 1
-            fi
-            gh release edit "$TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --prerelease="$PRERELEASE"
-            gh api --method GET "$release_path" >"$release_json"
-            release_prerelease="$(jq -er '.prerelease' "$release_json")"
-            if [ "$release_prerelease" != "$PRERELEASE" ]; then
-              echo "::error::Could not reconcile draft release classification for $TAG."
-              exit 1
-            fi
+          if [ "$release_draft" != "true" ] && [ "$release_immutable" != "true" ]; then
+            echo "::error::Published release $TAG is mutable; refusing recovery or reconciliation."
+            exit 1
+          fi
+          if [ "$release_draft" != "true" ] && \
+             { [ "$release_title" != "$expected_title" ] || [ "$release_body" != "$expected_body" ] || [ "$release_prerelease" != "$PRERELEASE" ]; }; then
+            echo "::error::Published release metadata differs from the immutable workflow contract; refusing to overwrite it."
+            exit 1
           fi
 
-          matching_assets="$(
-            jq --arg name "$PACKAGE_TARBALL" \
-              '[.assets[]? | select(.name == $name)] | length' \
-              "$release_json"
-          )"
-          unexpected_assets="$(
-            jq --arg name "$PACKAGE_TARBALL" \
-              '[.assets[]? | select(.name != $name)] | length' \
-              "$release_json"
-          )"
+          matching_assets="$(jq --arg name "$PACKAGE_TARBALL" \
+            '[.assets[]? | select(.name == $name)] | length' "$release_json")"
+          unexpected_assets="$(jq --arg name "$PACKAGE_TARBALL" \
+            '[.assets[]? | select(.name != $name)] | length' "$release_json")"
           if [ "$matching_assets" -gt 1 ] || [ "$unexpected_assets" -gt 0 ]; then
             echo "::error::Release $TAG has an ambiguous asset set (matching=$matching_assets unexpected=$unexpected_assets)."
             exit 1
@@ -741,79 +864,170 @@ jobs:
               echo "::error::Published release $TAG is missing immutable asset $PACKAGE_TARBALL."
               exit 1
             fi
-            gh release upload "$TAG" "artifacts/$PACKAGE_TARBALL" \
-              --repo "$GITHUB_REPOSITORY"
-            gh api --method GET "$release_path" >"$release_json"
-            matching_assets="$(
-              jq --arg name "$PACKAGE_TARBALL" \
-                '[.assets[]? | select(.name == $name)] | length' \
-                "$release_json"
-            )"
-            if [ "$matching_assets" -ne 1 ]; then
-              echo "::error::Draft recovery did not produce exactly one $PACKAGE_TARBALL asset."
-              exit 1
-            fi
+            encoded_asset_name="$(jq -rn --arg name "$PACKAGE_TARBALL" '$name | @uri')"
+            upload_json="$RUNNER_TEMP/upload-release-asset-${GITHUB_RUN_ID}.json"
+            curl --fail-with-body --silent --show-error \
+              --request POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $github_token" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@artifacts/$PACKAGE_TARBALL" \
+              --output "$upload_json" \
+              "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?name=${encoded_asset_name}"
+            jq -e --arg name "$PACKAGE_TARBALL" \
+              '.name == $name and .state == "uploaded"' "$upload_json" >/dev/null
           fi
 
-          asset_state="$(
-            jq -er --arg name "$PACKAGE_TARBALL" \
-              '.assets[] | select(.name == $name) | .state' \
-              "$release_json"
-          )"
-          asset_digest="$(
-            jq -r --arg name "$PACKAGE_TARBALL" \
-              '.assets[] | select(.name == $name) | (.digest // "")' \
-              "$release_json"
-          )"
-          if [ "$asset_state" != "uploaded" ]; then
-            echo "::error::Release asset $PACKAGE_TARBALL is in state '$asset_state', expected 'uploaded'."
+          verify_single_asset
+          validated_asset_id="$asset_id"
+
+          # Re-read the exact release and artifact immediately before the only
+          # visibility mutation. A concurrent extra/replacement asset blocks.
+          verify_single_asset "$validated_asset_id"
+          release_draft="$(jq -er '.draft' "$release_json")"
+          release_immutable="$(jq -er '
+            if has("immutable") and ((.immutable | type) == "boolean")
+            then (.immutable | tostring)
+            else error("missing or invalid immutable release state")
+            end
+          ' "$release_json")"
+          release_title="$(jq -r '.name // ""' "$release_json")"
+          release_body="$(jq -r '.body // ""' "$release_json")"
+          release_prerelease="$(jq -er '.prerelease' "$release_json")"
+          if [ "$release_draft" != "true" ] && \
+             { [ "$release_title" != "$expected_title" ] || [ "$release_body" != "$expected_body" ] || [ "$release_prerelease" != "$PRERELEASE" ]; }; then
+            echo "::error::Published release metadata changed before latest reconciliation."
             exit 1
           fi
-          if [ -n "$asset_digest" ]; then
-            if [ "$asset_digest" != "sha256:$PACKAGE_SHA256" ]; then
-              echo "::error::Release asset digest mismatch (expected sha256:$PACKAGE_SHA256, found $asset_digest)."
+          if [ "$release_draft" != "true" ] && [ "$release_immutable" != "true" ]; then
+            echo "::error::Published release $TAG lost immutable status before reconciliation."
+            exit 1
+          fi
+
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          CURRENT_TAG_SHA="$(git rev-parse "refs/tags/$TAG^{commit}")"
+          git fetch --force origin "refs/heads/main:refs/remotes/origin/main"
+          CURRENT_MAIN_SHA="$(git rev-parse refs/remotes/origin/main)"
+          if [ "$CURRENT_TAG_SHA" != "$VERIFIED_SHA" ] || ! git merge-base --is-ancestor "$VERIFIED_SHA" "$CURRENT_MAIN_SHA"; then
+            echo "::error::Release identity changed before reconciliation (tag=$CURRENT_TAG_SHA main=$CURRENT_MAIN_SHA expected=$VERIFIED_SHA)."
+            exit 1
+          fi
+
+          LATEST_DECISION_BASE="$(read_latest_release_tag)"
+          PROMOTE_LATEST="$(node scripts/release-policy.mjs github-latest \
+            "$PACKAGE_VERSION" "$LATEST_DECISION_BASE")"
+          latest_is_reconciled=false
+          if { [ "$PROMOTE_LATEST" = "true" ] && [ "$LATEST_DECISION_BASE" = "$TAG" ]; } || \
+             { [ "$PROMOTE_LATEST" = "false" ] && [ "$LATEST_DECISION_BASE" != "$TAG" ]; }; then
+            latest_is_reconciled=true
+          fi
+
+          if [ "$release_draft" = "true" ]; then
+            publish_payload="$RUNNER_TEMP/publish-release-${GITHUB_RUN_ID}.json"
+            jq -n \
+              --arg tag "$TAG" \
+              --arg name "$expected_title" \
+              --arg body "$expected_body" \
+              --argjson prerelease "$PRERELEASE" \
+              --arg make_latest "$PROMOTE_LATEST" \
+              '{tag_name: $tag, name: $name, body: $body,
+                draft: false, prerelease: $prerelease, make_latest: $make_latest}' \
+              >"$publish_payload"
+            assert_immutable_release_policy "release-patch"
+            github_api --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+              --input "$publish_payload" >"$release_json"
+          elif [ "$latest_is_reconciled" != "true" ]; then
+            echo "::error::Published immutable release $TAG is not in the expected GitHub latest state; refusing an unsupported immutable-release mutation."
+            exit 1
+          fi
+
+          # Publishing under the owner-enforced immutable-release policy also
+          # creates a signed release attestation. A merely public-but-mutable
+          # release must never satisfy this gate.
+          final_immutable=false
+          for immutability_attempt in {1..12}; do
+            load_release
+            observed_asset_id="$(node scripts/release-policy.mjs release-asset-id \
+              "$release_json" "$release_id" "$TAG" \
+              "$PACKAGE_TARBALL" "$validated_asset_id" "$PACKAGE_SHA256")"
+            if [ "$observed_asset_id" != "$validated_asset_id" ]; then
+              echo "::error::Published release asset id changed from $validated_asset_id to $observed_asset_id."
               exit 1
             fi
-          else
-            mkdir -p "$RUNNER_TEMP/existing-release-asset"
-            gh release download "$TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --pattern "$PACKAGE_TARBALL" \
-              --dir "$RUNNER_TEMP/existing-release-asset"
-            echo "$PACKAGE_SHA256  $RUNNER_TEMP/existing-release-asset/$PACKAGE_TARBALL" | sha256sum --check --strict
-          fi
+            final_immutable="$(jq -er '
+              if has("immutable") and ((.immutable | type) == "boolean")
+              then (.immutable | tostring)
+              else error("missing or invalid immutable release state")
+              end
+            ' "$release_json")"
+            if [ "$final_immutable" = "true" ]; then
+              break
+            fi
+            if [ "$immutability_attempt" -eq 12 ]; then
+              echo "::error::Published release $TAG did not become immutable; refusing a mutable success state."
+              exit 1
+            fi
+            echo "Waiting for immutable release state for $TAG ($immutability_attempt/12)."
+            sleep 5
+          done
 
-          release_draft="$(jq -er '.draft' "$release_json")"
-          if [ "$release_draft" = "true" ]; then
-            CURRENT_LATEST_TAG="$(read_latest_release_tag)"
-            PROMOTE_LATEST="$(node scripts/release-policy.mjs github-latest \
-              "$PACKAGE_VERSION" "$CURRENT_LATEST_TAG")"
-            gh release edit "$TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --draft=false \
-              --prerelease="$PRERELEASE" \
-              --latest="$PROMOTE_LATEST" \
-              --verify-tag
-            gh api --method GET "$release_path" >"$release_json"
-          fi
-
+          # A final authenticated download proves that the immutable public
+          # release still exposes the same asset ID and bytes.
+          verify_single_asset "$validated_asset_id"
           final_draft="$(jq -er '.draft' "$release_json")"
           final_prerelease="$(jq -er '.prerelease' "$release_json")"
-          final_digest="$(
-            jq -r --arg name "$PACKAGE_TARBALL" \
-              '.assets[] | select(.name == $name) | (.digest // "")' \
-              "$release_json"
-          )"
-          if [ "$final_draft" != "false" ] || [ "$final_prerelease" != "$PRERELEASE" ]; then
-            echo "::error::Release $TAG did not converge (draft=$final_draft prerelease=$final_prerelease)."
+          final_title="$(jq -r '.name // ""' "$release_json")"
+          final_body="$(jq -r '.body // ""' "$release_json")"
+          if [ "$final_draft" != "false" ] || [ "$final_prerelease" != "$PRERELEASE" ] || \
+             [ "$final_title" != "$expected_title" ] || [ "$final_body" != "$expected_body" ]; then
+            echo "::error::Release $TAG final metadata did not converge without data loss."
             exit 1
           fi
-          if [ -n "$final_digest" ] && [ "$final_digest" != "sha256:$PACKAGE_SHA256" ]; then
-            echo "::error::Published release asset digest changed unexpectedly: $final_digest."
+
+          release_attestation_output="$RUNNER_TEMP/release-attestation-${GITHUB_RUN_ID}.out"
+          release_attestation_error="$RUNNER_TEMP/release-attestation-${GITHUB_RUN_ID}.err"
+          asset_attestation_output="$RUNNER_TEMP/release-asset-attestation-${GITHUB_RUN_ID}.out"
+          asset_attestation_error="$RUNNER_TEMP/release-asset-attestation-${GITHUB_RUN_ID}.err"
+          # gh <=2.92.0 can disclose GH_TOKEN during these verification calls
+          # (CVE-2026-48501); fail before networking unless the fix is present.
+          GH_CLI_VERSION="$(gh --version | awk 'NR == 1 && $1 == "gh" && $2 == "version" { print $3 }')"
+          node scripts/release-policy.mjs assert-safe-gh-release-verifier "$GH_CLI_VERSION"
+          echo "Using GitHub CLI $GH_CLI_VERSION for release attestation verification."
+          attestation_verified=false
+          for attestation_attempt in {1..12}; do
+            : >"$release_attestation_output"
+            : >"$release_attestation_error"
+            : >"$asset_attestation_output"
+            : >"$asset_attestation_error"
+            if github_release verify "$TAG" --repo "$GITHUB_REPOSITORY" \
+              >"$release_attestation_output" 2>"$release_attestation_error" && \
+              github_release verify-asset "$TAG" "artifacts/$PACKAGE_TARBALL" \
+                --repo "$GITHUB_REPOSITORY" \
+                >"$asset_attestation_output" 2>"$asset_attestation_error"; then
+              cat "$release_attestation_output"
+              cat "$asset_attestation_output"
+              attestation_verified=true
+              break
+            fi
+            if [ "$attestation_attempt" -eq 12 ]; then
+              cat "$release_attestation_error" >&2
+              cat "$asset_attestation_error" >&2
+              echo "::error::GitHub did not provide a valid signed release and asset attestation for immutable release $TAG."
+              exit 1
+            fi
+            echo "Waiting for the signed release attestation for $TAG ($attestation_attempt/12)."
+            sleep 5
+          done
+          if [ "$attestation_verified" != "true" ]; then
+            echo "::error::Signed release attestation verification did not complete."
             exit 1
           fi
           ACTUAL_LATEST_TAG="$(read_latest_release_tag)"
           node scripts/release-policy.mjs assert-github-latest \
-            "$PACKAGE_VERSION" "$PRIOR_LATEST_TAG" "$ACTUAL_LATEST_TAG" "$PROMOTE_LATEST"
+            "$PACKAGE_VERSION" "$LATEST_DECISION_BASE" "$ACTUAL_LATEST_TAG" "$PROMOTE_LATEST"
           echo "Release $TAG is published with verified asset $PACKAGE_TARBALL (sha256:$PACKAGE_SHA256); GitHub latest remains monotonic at ${ACTUAL_LATEST_TAG:-missing}."
     timeout-minutes: 60

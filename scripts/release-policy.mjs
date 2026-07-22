@@ -14,6 +14,7 @@ const SEMVER_PATTERN = new RegExp(
 const DISPLAY_TAG_PATTERN = /^v(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
 const CANONICAL_SHA512_PAYLOAD = /^[A-Za-z0-9+/]{86}==$/;
 const NPM_TAG_PATTERN = /^[A-Za-z][0-9A-Za-z._-]*$/;
+const MINIMUM_SAFE_GH_RELEASE_VERIFIER_VERSION = "2.93.0";
 
 export function parseSemVer(value) {
   if (typeof value !== "string") {
@@ -71,6 +72,21 @@ export function compareSemVer(leftValue, rightValue) {
     if (comparison !== 0) return comparison;
   }
   return 0;
+}
+
+export function assertSafeGitHubCliReleaseVerifierVersion(version) {
+  try {
+    parseSemVer(version);
+  } catch {
+    throw new Error(`Could not parse GitHub CLI version: ${version || "<empty>"}`);
+  }
+  if (compareSemVer(version, MINIMUM_SAFE_GH_RELEASE_VERIFIER_VERSION) < 0) {
+    throw new Error(
+      `GitHub CLI ${version} is unsafe for release attestation verification; ` +
+        `CVE-2026-48501 requires ${MINIMUM_SAFE_GH_RELEASE_VERIFIER_VERSION} or newer`,
+    );
+  }
+  return version;
 }
 
 export function semVerFromDisplayTag(tag) {
@@ -135,6 +151,76 @@ export function verifySha512Sri(expected, actual, context = "published artifact"
 export function verifyFileSha512Sri(path, expected) {
   const actual = canonicalSha512Sri(readFileSync(path));
   verifySha512Sri(expected, actual, path);
+}
+
+export function normalizeNpmViewIntegrity(rawJson) {
+  let value;
+  try {
+    value = JSON.parse(rawJson);
+  } catch {
+    throw new Error("npm view integrity response is not valid JSON");
+  }
+  if (Array.isArray(value)) {
+    if (value.length !== 1) {
+      throw new Error(
+        `npm view integrity response must contain exactly one result, found ${value.length}`,
+      );
+    }
+    [value] = value;
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    value = value["dist.integrity"];
+  }
+  assertCanonicalSha512Sri(value, "npm view integrity");
+  return value;
+}
+
+export function validateGitHubReleaseSnapshot({
+  release,
+  expectedReleaseId,
+  expectedTag,
+  expectedAssetName,
+  expectedAssetId = "",
+  expectedSha256,
+}) {
+  if (!release || typeof release !== "object" || Array.isArray(release)) {
+    throw new Error("GitHub release snapshot must be one object");
+  }
+  if (String(release.id ?? "") !== String(expectedReleaseId)) {
+    throw new Error(
+      `GitHub release id changed from ${expectedReleaseId} to ${release.id ?? "missing"}`,
+    );
+  }
+  if (release.tag_name !== expectedTag) {
+    throw new Error(
+      `GitHub release tag changed from ${expectedTag} to ${release.tag_name ?? "missing"}`,
+    );
+  }
+  if (!Array.isArray(release.assets) || release.assets.length !== 1) {
+    throw new Error(
+      `GitHub release must contain exactly one asset, found ${release.assets?.length ?? "invalid"}`,
+    );
+  }
+  const [asset] = release.assets;
+  if (!asset || asset.name !== expectedAssetName || asset.state !== "uploaded") {
+    throw new Error(`GitHub release asset is not the expected uploaded ${expectedAssetName}`);
+  }
+  if (expectedAssetId && String(asset.id ?? "") !== String(expectedAssetId)) {
+    throw new Error(
+      `GitHub release asset id changed from ${expectedAssetId} to ${asset.id ?? "missing"}`,
+    );
+  }
+  if (!/^[0-9a-f]{64}$/.test(expectedSha256)) {
+    throw new Error("Expected release SHA-256 must be 64 lowercase hexadecimal characters");
+  }
+  const digest = asset.digest ?? "";
+  if (digest && digest !== `sha256:${expectedSha256}`) {
+    throw new Error(`GitHub release asset digest does not match sha256:${expectedSha256}`);
+  }
+  if (typeof asset.id !== "number" && typeof asset.id !== "string") {
+    throw new Error("GitHub release asset id is missing");
+  }
+  return String(asset.id);
 }
 
 function assertNpmTag(tag) {
@@ -297,6 +383,30 @@ function runCli(args) {
       requireArgument(args, 1, "expected integrity"),
       requireArgument(args, 2, "actual integrity"),
       args[3] || "published artifact",
+    );
+    return;
+  }
+  if (command === "assert-safe-gh-release-verifier") {
+    console.log(
+      assertSafeGitHubCliReleaseVerifierVersion(requireArgument(args, 1, "GitHub CLI version")),
+    );
+    return;
+  }
+  if (command === "normalize-npm-view-integrity") {
+    console.log(normalizeNpmViewIntegrity(requireArgument(args, 1, "npm view JSON")));
+    return;
+  }
+  if (command === "release-asset-id") {
+    const release = JSON.parse(readFileSync(requireArgument(args, 1, "release JSON path"), "utf8"));
+    console.log(
+      validateGitHubReleaseSnapshot({
+        release,
+        expectedReleaseId: requireArgument(args, 2, "release id"),
+        expectedTag: requireArgument(args, 3, "release tag"),
+        expectedAssetName: requireArgument(args, 4, "asset name"),
+        expectedAssetId: args[5] || "",
+        expectedSha256: requireArgument(args, 6, "asset SHA-256"),
+      }),
     );
     return;
   }

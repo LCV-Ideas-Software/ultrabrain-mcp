@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.2.5 - 2026-07-22
+
+**Patch — immutable draft-release recovery.** GitHub Release reconciliation now
+discovers both draft and published releases through the paginated Releases API,
+binds every mutation and asset transfer to the exact release id, and verifies
+the downloaded asset bytes before publishing the draft. Required validation
+workflows retain queued runs instead of canceling or re-running historical
+commits into a newer concurrency group. This supersedes the incomplete 1.2.4
+GitHub Release while preserving its immutable tag, npm provenance, and package
+artifact. No runtime API or state format changes.
+
+## 1.2.4 - 2026-07-22
+
+**Patch — provenance-safe release recovery.** Fixes the npm tarball path that
+caused the 1.2.3 publisher to interpret `artifacts/...tgz` as a Git SSH package
+specification. Auto-tagging now serializes every candidate without canceling
+queued bumps, recovers the immutable first-parent version-introduction commit,
+uses authenticated GitHub API ref resolution, and requires all always-on gates
+plus zero-result CodeQL SARIF at that exact SHA before creating or redispatching
+the canonical tag. The unpublished `v01.02.03` tag remains immutable audit
+evidence; 1.2.4 supersedes it so npm provenance, source commit, and workflow
+instructions all identify the same corrected release commit. No runtime API or
+state format changes.
+
 ## 1.2.3 - 2026-07-22
 
 **Security and release hardening.** The npm package now contains a self-contained

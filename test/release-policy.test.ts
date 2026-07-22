@@ -3,13 +3,16 @@ import {
   assertCanonicalSha512Sri,
   assertGitHubLatest,
   assertRegistryLatest,
+  assertSafeGitHubCliReleaseVerifierVersion,
   canonicalSha512Sri,
   compareSemVer,
   decideGitHubLatest,
   decideNpmPublishTag,
   displayTagFromSemVer,
+  normalizeNpmViewIntegrity,
   parseSemVer,
   semVerFromDisplayTag,
+  validateGitHubReleaseSnapshot,
   verifySha512Sri,
 } from "../scripts/release-policy.mjs";
 
@@ -42,6 +45,13 @@ describe("release policy", () => {
     expect(compareSemVer("1.2.3+first", "1.2.3+second")).toBe(0);
   });
 
+  it("rejects GitHub CLI releases affected by token disclosure during attestation verification", () => {
+    expect(() => assertSafeGitHubCliReleaseVerifierVersion("2.92.0")).toThrow(/2\.93\.0/);
+    expect(assertSafeGitHubCliReleaseVerifierVersion("2.93.0")).toBe("2.93.0");
+    expect(assertSafeGitHubCliReleaseVerifierVersion("2.96.0")).toBe("2.96.0");
+    expect(() => assertSafeGitHubCliReleaseVerifierVersion("not-a-version")).toThrow(/parse/);
+  });
+
   it("normalizes zero-padded display tags without weakening SemVer", () => {
     expect(semVerFromDisplayTag("v01.02.03")).toBe("1.2.3");
     expect(semVerFromDisplayTag("v01.02.03-rc.2")).toBe("1.2.3-rc.2");
@@ -62,6 +72,58 @@ describe("release policy", () => {
       /does not match/,
     );
     expect(() => verifySha512Sri(integrity, integrity)).not.toThrow();
+  });
+
+  it("normalizes npm 12 single-result integrity shapes and rejects ambiguity", () => {
+    const integrity = canonicalSha512Sri(Buffer.from("immutable tarball"));
+    expect(normalizeNpmViewIntegrity(JSON.stringify(integrity))).toBe(integrity);
+    expect(normalizeNpmViewIntegrity(JSON.stringify([integrity]))).toBe(integrity);
+    expect(normalizeNpmViewIntegrity(JSON.stringify({ "dist.integrity": integrity }))).toBe(
+      integrity,
+    );
+    expect(() => normalizeNpmViewIntegrity(JSON.stringify([]))).toThrow(/exactly one/);
+    expect(() => normalizeNpmViewIntegrity(JSON.stringify([integrity, integrity]))).toThrow(
+      /exactly one/,
+    );
+    expect(() => normalizeNpmViewIntegrity(JSON.stringify(null))).toThrow(/canonical sha512/);
+  });
+
+  it("rejects ambiguous or replaced GitHub Release asset snapshots", () => {
+    const sha256 = "a".repeat(64);
+    const release = {
+      id: 123,
+      tag_name: "v01.02.05",
+      target_commitish: "main",
+      assets: [{ id: 456, name: "package.tgz", state: "uploaded", digest: null }],
+    };
+    const validate = (candidate: Record<string, unknown>, expectedAssetId = "") =>
+      validateGitHubReleaseSnapshot({
+        release: candidate,
+        expectedReleaseId: "123",
+        expectedTag: "v01.02.05",
+        expectedAssetName: "package.tgz",
+        expectedAssetId,
+        expectedSha256: sha256,
+      });
+    expect(validate(release)).toBe("456");
+    expect(validate({ ...release, target_commitish: "release-branch" })).toBe("456");
+    expect(() => validate({ ...release, id: 999 })).toThrow(/release id changed/);
+    expect(() => validate({ ...release, tag_name: "v99.99.99" })).toThrow(/release tag changed/);
+    expect(validate(release, "456")).toBe("456");
+    expect(
+      validate({ ...release, assets: [{ ...release.assets[0], digest: `sha256:${sha256}` }] }),
+    ).toBe("456");
+    expect(() => validate({ ...release, assets: [] })).toThrow(/exactly one/);
+    expect(() => validate({ ...release, assets: [...release.assets, release.assets[0]] })).toThrow(
+      /exactly one/,
+    );
+    expect(() => validate(release, "999")).toThrow(/asset id changed/);
+    expect(() =>
+      validate({
+        ...release,
+        assets: [{ ...release.assets[0], digest: `sha256:${"c".repeat(64)}` }],
+      }),
+    ).toThrow(/digest does not match/);
   });
 
   it("selects npm latest only monotonically and never for prereleases", () => {

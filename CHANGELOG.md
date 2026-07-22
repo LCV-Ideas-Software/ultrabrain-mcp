@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.7 - 2026-07-22
+
+**Patch — eventual-consistency-safe draft discovery.** After creating a
+recoverable GitHub Release draft, reconciliation now waits for the paginated
+Releases API to expose that exact server-issued release id. The retry is
+bounded, rejects ambiguous or different release identities, and fails closed
+before any asset upload if visibility does not converge. No runtime API or
+state format changes.
+
 ## 1.2.6 - 2026-07-22
 
 **Patch — boolean-safe immutable release reconciliation.** Release metadata

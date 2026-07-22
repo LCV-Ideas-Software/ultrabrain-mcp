@@ -53,6 +53,13 @@ describe("release workflow invariants", () => {
     expect(publish).toContain('github_release verify-asset "$TAG" "artifacts/$PACKAGE_TARBALL"');
   });
 
+  it("accepts valid false release booleans without turning them into jq failures", () => {
+    expect(publish).toContain("read_json_boolean() {");
+    expect(publish.match(/read_json_boolean draft "\$release_json"/g)).toHaveLength(3);
+    expect(publish.match(/read_json_boolean prerelease "\$release_json"/g)).toHaveLength(3);
+    expect(publish).not.toMatch(/jq -er '\.(?:draft|prerelease)'/);
+  });
+
   it("removes administrative tokens from the exported step environment before subprocesses", () => {
     const policyGate = publish.indexOf("Require owner-enforced immutable GitHub Releases");
     const policyUnset = publish.indexOf("unset ADMIN_GH_TOKEN", policyGate);

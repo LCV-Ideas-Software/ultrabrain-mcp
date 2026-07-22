@@ -60,6 +60,33 @@ describe("release workflow invariants", () => {
     expect(publish).not.toMatch(/jq -er '\.(?:draft|prerelease)'/);
   });
 
+  it("waits for a newly created draft to become list-visible by its exact release id", () => {
+    expect(publish).toContain("wait_for_created_release() {");
+    expect(publish).toContain("for release_visibility_attempt in {1..12}; do");
+    expect(publish).toContain('observed_release_id="$(jq -er \'.id\' "$release_json")"');
+    expect(publish).toContain('if [ "$observed_release_id" != "$expected_release_id" ]; then');
+    expect(publish).toContain('if [ "$load_status" -ne 1 ]; then');
+    expect(publish).toContain("did not become list-visible by its exact id");
+
+    const createRelease = publish.indexOf('"repos/$' + '{GITHUB_REPOSITORY}/releases" \\');
+    const captureCreatedId = publish.indexOf(
+      'created_release_id="$(jq -er \'.id\' "$release_json")"',
+      createRelease,
+    );
+    const waitForCreatedRelease = publish.indexOf(
+      'wait_for_created_release "$created_release_id"',
+      captureCreatedId,
+    );
+    const createdDraftMessage = publish.indexOf(
+      "Created recoverable draft release $TAG through the release API.",
+      waitForCreatedRelease,
+    );
+    expect(createRelease).toBeGreaterThan(-1);
+    expect(captureCreatedId).toBeGreaterThan(createRelease);
+    expect(waitForCreatedRelease).toBeGreaterThan(captureCreatedId);
+    expect(createdDraftMessage).toBeGreaterThan(waitForCreatedRelease);
+  });
+
   it("removes administrative tokens from the exported step environment before subprocesses", () => {
     const policyGate = publish.indexOf("Require owner-enforced immutable GitHub Releases");
     const policyUnset = publish.indexOf("unset ADMIN_GH_TOKEN", policyGate);

@@ -28,6 +28,14 @@ describe("release workflow invariants", () => {
     expect(autoTag).toContain("unexpected result(s)");
   });
 
+  it("re-runs cancelled exact-target gates with a finite safety cap", () => {
+    expect(autoTag).toContain("readonly max_cancelled_attempts=3");
+    expect(autoTag).toContain('.conclusion == "cancelled"');
+    expect(autoTag).toContain(".run_attempt");
+    expect(autoTag).toContain("actions/runs/$run_id/rerun");
+    expect(autoTag).toContain("GitHub-Api-Version: 2026-03-10");
+  });
+
   it("dispatches the workflow from the immutable tag so npm provenance names the source SHA", () => {
     expect(autoTag).toContain('-f ref="$TAG"');
     expect(publish).not.toContain("release_tag:");

@@ -336,6 +336,8 @@ jobs:
           done
 
           deadline=$((SECONDS + 1200))
+          readonly max_cancelled_attempts=3
+          declare -A rerun_requests=()
           gates_ready=false
           while [ "$SECONDS" -lt "$deadline" ]; do
             pages="$(gh api --method GET --paginate --slurp \
@@ -343,6 +345,53 @@ jobs:
             runs="$(jq -ce --arg sha "$TARGET_SHA" \
               '[.[].workflow_runs[] | select(.head_sha == $sha and .event == "push")]' \
               <<<"$pages")"
+
+            # A newer push can cancel an older target's validation runs. GitHub
+            # re-runs preserve the original GITHUB_SHA and GITHUB_REF, so only
+            # these six side-effect-free, exact-target gates are retried here.
+            # Cap attempts to prevent an unbounded recovery loop.
+            rerun_requested=false
+            for gate in "${required_gates[@]}"; do
+              workflow_id="${gate%%:*}"
+              expected_path="${gate#*:}"
+              cancelled_run="$(jq -c \
+                --argjson workflow_id "$workflow_id" \
+                --arg path "$expected_path" \
+                '[.[] | select(
+                  .workflow_id == $workflow_id and
+                  .path == $path and
+                  .head_branch == "main" and
+                  .status == "completed" and
+                  .conclusion == "cancelled"
+                )] | sort_by([.created_at, .id]) | last // null' \
+                <<<"$runs")"
+              if [ "$cancelled_run" = null ]; then
+                continue
+              fi
+
+              run_id="$(jq -er '.id' <<<"$cancelled_run")"
+              run_attempt="$(jq -er '.run_attempt' <<<"$cancelled_run")"
+              if [ "$run_attempt" -ge "$max_cancelled_attempts" ]; then
+                echo "::error::Required exact-target gate $expected_path was cancelled at attempt $run_attempt; automatic retries are capped at $max_cancelled_attempts."
+                exit 1
+              fi
+
+              rerun_key="${run_id}:${run_attempt}"
+              if [ -z "${rerun_requests[$rerun_key]:-}" ]; then
+                gh api --method POST \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "X-GitHub-Api-Version: 2026-03-10" \
+                  "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/rerun" \
+                  >/dev/null
+                rerun_requests["$rerun_key"]=true
+                echo "::notice::Re-running cancelled exact-target gate $expected_path run $run_id attempt $run_attempt at $TARGET_SHA."
+              fi
+              rerun_requested=true
+            done
+            if [ "$rerun_requested" = true ]; then
+              sleep 15
+              continue
+            fi
 
             observed_failures="$(jq -c '[.[] | select(
               .status == "completed" and

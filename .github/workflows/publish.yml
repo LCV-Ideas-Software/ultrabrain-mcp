@@ -343,7 +343,7 @@ jobs:
             exit 1
           fi
           echo "Revalidated $PUBLISH_REF at immutable commit $VERIFIED_SHA (ancestor of main $MAIN_SHA)."
-          npm publish "artifacts/$PACKAGE_TARBALL" --registry=https://registry.npmjs.org --access public --provenance --tag "$DIST_TAG" --ignore-scripts
+          npm publish "./artifacts/$PACKAGE_TARBALL" --registry=https://registry.npmjs.org --access public --provenance --tag "$DIST_TAG" --ignore-scripts
       - name: Verify npmjs.com public visibility
         env:
           PACKAGE_NAME: ${{ needs.gate.outputs.name }}
@@ -518,7 +518,7 @@ jobs:
             exit 1
           fi
           echo "Revalidated $PUBLISH_REF at immutable commit $VERIFIED_SHA (ancestor of main $MAIN_SHA)."
-          npm publish "artifacts/$PACKAGE_TARBALL" --registry=https://npm.pkg.github.com --@lcv-ideas-software:registry=https://npm.pkg.github.com --access public --provenance --tag "$DIST_TAG" --ignore-scripts
+          npm publish "./artifacts/$PACKAGE_TARBALL" --registry=https://npm.pkg.github.com --@lcv-ideas-software:registry=https://npm.pkg.github.com --access public --provenance --tag "$DIST_TAG" --ignore-scripts
       - name: Verify GitHub Packages visibility
         env:
           PACKAGE_NAME: ${{ needs.gate.outputs.name }}

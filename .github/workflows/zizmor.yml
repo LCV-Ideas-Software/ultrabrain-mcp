@@ -11,6 +11,11 @@ on:
 
 permissions: write-all
 
+concurrency:
+  group: zizmor-${{ github.ref }}
+  queue: max
+  cancel-in-progress: false
+
 jobs:
   zizmor:
     name: Run zizmor

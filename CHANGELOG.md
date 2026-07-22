@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.5 - 2026-07-22
+
+**Patch — immutable draft-release recovery.** GitHub Release reconciliation now
+discovers both draft and published releases through the paginated Releases API,
+binds every mutation and asset transfer to the exact release id, and verifies
+the downloaded asset bytes before publishing the draft. Required validation
+workflows retain queued runs instead of canceling or re-running historical
+commits into a newer concurrency group. This supersedes the incomplete 1.2.4
+GitHub Release while preserving its immutable tag, npm provenance, and package
+artifact. No runtime API or state format changes.
+
 ## 1.2.4 - 2026-07-22
 
 **Patch — provenance-safe release recovery.** Fixes the npm tarball path that

@@ -18,6 +18,9 @@ describe("release workflow invariants", () => {
     expect(publish).not.toContain("releases/tags/$" + "{TAG}");
     expect(publish).not.toMatch(/gh release (?:upload|edit|download)/);
     expect(publish).toContain("release-asset-id");
+    expect(publish).not.toContain("release_target=\"$(jq -er '.target_commitish'");
+    expect(publish).not.toContain('"$release_json" "$release_id" "$TAG" "$VERIFIED_SHA"');
+    expect(publish).not.toContain("target_commitish");
     expect(publish.match(/verify_single_asset "\$validated_asset_id"/g)).toHaveLength(2);
     const prePublishVerification = publish.indexOf('verify_single_asset "$validated_asset_id"');
     const releasePatch = publish.indexOf(

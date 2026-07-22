@@ -179,7 +179,6 @@ export function validateGitHubReleaseSnapshot({
   release,
   expectedReleaseId,
   expectedTag,
-  expectedTarget,
   expectedAssetName,
   expectedAssetId = "",
   expectedSha256,
@@ -192,9 +191,9 @@ export function validateGitHubReleaseSnapshot({
       `GitHub release id changed from ${expectedReleaseId} to ${release.id ?? "missing"}`,
     );
   }
-  if (release.tag_name !== expectedTag || release.target_commitish !== expectedTarget) {
+  if (release.tag_name !== expectedTag) {
     throw new Error(
-      `GitHub release identity changed (tag=${release.tag_name ?? "missing"} target=${release.target_commitish ?? "missing"})`,
+      `GitHub release tag changed from ${expectedTag} to ${release.tag_name ?? "missing"}`,
     );
   }
   if (!Array.isArray(release.assets) || release.assets.length !== 1) {
@@ -404,10 +403,9 @@ function runCli(args) {
         release,
         expectedReleaseId: requireArgument(args, 2, "release id"),
         expectedTag: requireArgument(args, 3, "release tag"),
-        expectedTarget: requireArgument(args, 4, "release target"),
-        expectedAssetName: requireArgument(args, 5, "asset name"),
-        expectedAssetId: args[6] || "",
-        expectedSha256: requireArgument(args, 7, "asset SHA-256"),
+        expectedAssetName: requireArgument(args, 4, "asset name"),
+        expectedAssetId: args[5] || "",
+        expectedSha256: requireArgument(args, 6, "asset SHA-256"),
       }),
     );
     return;

@@ -93,7 +93,7 @@ describe("release policy", () => {
     const release = {
       id: 123,
       tag_name: "v01.02.05",
-      target_commitish: "b".repeat(40),
+      target_commitish: "main",
       assets: [{ id: 456, name: "package.tgz", state: "uploaded", digest: null }],
     };
     const validate = (candidate: Record<string, unknown>, expectedAssetId = "") =>
@@ -101,12 +101,14 @@ describe("release policy", () => {
         release: candidate,
         expectedReleaseId: "123",
         expectedTag: "v01.02.05",
-        expectedTarget: "b".repeat(40),
         expectedAssetName: "package.tgz",
         expectedAssetId,
         expectedSha256: sha256,
       });
     expect(validate(release)).toBe("456");
+    expect(validate({ ...release, target_commitish: "release-branch" })).toBe("456");
+    expect(() => validate({ ...release, id: 999 })).toThrow(/release id changed/);
+    expect(() => validate({ ...release, tag_name: "v99.99.99" })).toThrow(/release tag changed/);
     expect(validate(release, "456")).toBe("456");
     expect(
       validate({ ...release, assets: [{ ...release.assets[0], digest: `sha256:${sha256}` }] }),

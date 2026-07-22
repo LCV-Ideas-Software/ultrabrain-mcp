@@ -788,11 +788,10 @@ jobs:
             create_payload="$RUNNER_TEMP/create-release-${GITHUB_RUN_ID}.json"
             jq -n \
               --arg tag "$TAG" \
-              --arg target "$VERIFIED_SHA" \
               --arg name "ultrabrain-mcp $TAG" \
               --arg body "$(cat release-notes.md)" \
               --argjson prerelease "$PRERELEASE" \
-              '{tag_name: $tag, target_commitish: $target, name: $name, body: $body,
+              '{tag_name: $tag, name: $name, body: $body,
                 draft: true, prerelease: $prerelease}' \
               >"$create_payload"
             github_api --method POST \
@@ -815,7 +814,7 @@ jobs:
             local current_asset_id asset_verify_dir
             load_release
             current_asset_id="$(node scripts/release-policy.mjs release-asset-id \
-              "$release_json" "$release_id" "$TAG" "$VERIFIED_SHA" \
+              "$release_json" "$release_id" "$TAG" \
               "$PACKAGE_TARBALL" "$expected_asset_id" "$PACKAGE_SHA256")"
             asset_verify_dir="$(mktemp -d "${RUNNER_TEMP}/release-asset.XXXXXX")"
             github_api --method GET \
@@ -828,7 +827,6 @@ jobs:
           }
 
           release_tag="$(jq -er '.tag_name' "$release_json")"
-          release_target="$(jq -er '.target_commitish' "$release_json")"
           release_draft="$(jq -er '.draft' "$release_json")"
           release_immutable="$(jq -er '
             if has("immutable") and ((.immutable | type) == "boolean")
@@ -839,8 +837,8 @@ jobs:
           release_title="$(jq -r '.name // ""' "$release_json")"
           release_body="$(jq -r '.body // ""' "$release_json")"
           release_prerelease="$(jq -er '.prerelease' "$release_json")"
-          if [ "$release_tag" != "$TAG" ] || [ "$release_target" != "$VERIFIED_SHA" ]; then
-            echo "::error::Release identity mismatch (tag=$release_tag target=$release_target)."
+          if [ "$release_tag" != "$TAG" ]; then
+            echo "::error::Release tag mismatch (expected=$TAG actual=$release_tag)."
             exit 1
           fi
           if [ "$release_draft" != "true" ] && [ "$release_immutable" != "true" ]; then
@@ -929,12 +927,11 @@ jobs:
             publish_payload="$RUNNER_TEMP/publish-release-${GITHUB_RUN_ID}.json"
             jq -n \
               --arg tag "$TAG" \
-              --arg target "$VERIFIED_SHA" \
               --arg name "$expected_title" \
               --arg body "$expected_body" \
               --argjson prerelease "$PRERELEASE" \
               --arg make_latest "$PROMOTE_LATEST" \
-              '{tag_name: $tag, target_commitish: $target, name: $name, body: $body,
+              '{tag_name: $tag, name: $name, body: $body,
                 draft: false, prerelease: $prerelease, make_latest: $make_latest}' \
               >"$publish_payload"
             assert_immutable_release_policy "release-patch"
@@ -955,7 +952,7 @@ jobs:
           for immutability_attempt in {1..12}; do
             load_release
             observed_asset_id="$(node scripts/release-policy.mjs release-asset-id \
-              "$release_json" "$release_id" "$TAG" "$VERIFIED_SHA" \
+              "$release_json" "$release_id" "$TAG" \
               "$PACKAGE_TARBALL" "$validated_asset_id" "$PACKAGE_SHA256")"
             if [ "$observed_asset_id" != "$validated_asset_id" ]; then
               echo "::error::Published release asset id changed from $validated_asset_id to $observed_asset_id."

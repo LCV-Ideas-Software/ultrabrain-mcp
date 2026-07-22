@@ -137,6 +137,77 @@ export function verifyFileSha512Sri(path, expected) {
   verifySha512Sri(expected, actual, path);
 }
 
+export function normalizeNpmViewIntegrity(rawJson) {
+  let value;
+  try {
+    value = JSON.parse(rawJson);
+  } catch {
+    throw new Error("npm view integrity response is not valid JSON");
+  }
+  if (Array.isArray(value)) {
+    if (value.length !== 1) {
+      throw new Error(
+        `npm view integrity response must contain exactly one result, found ${value.length}`,
+      );
+    }
+    [value] = value;
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    value = value["dist.integrity"];
+  }
+  assertCanonicalSha512Sri(value, "npm view integrity");
+  return value;
+}
+
+export function validateGitHubReleaseSnapshot({
+  release,
+  expectedReleaseId,
+  expectedTag,
+  expectedTarget,
+  expectedAssetName,
+  expectedAssetId = "",
+  expectedSha256,
+}) {
+  if (!release || typeof release !== "object" || Array.isArray(release)) {
+    throw new Error("GitHub release snapshot must be one object");
+  }
+  if (String(release.id ?? "") !== String(expectedReleaseId)) {
+    throw new Error(
+      `GitHub release id changed from ${expectedReleaseId} to ${release.id ?? "missing"}`,
+    );
+  }
+  if (release.tag_name !== expectedTag || release.target_commitish !== expectedTarget) {
+    throw new Error(
+      `GitHub release identity changed (tag=${release.tag_name ?? "missing"} target=${release.target_commitish ?? "missing"})`,
+    );
+  }
+  if (!Array.isArray(release.assets) || release.assets.length !== 1) {
+    throw new Error(
+      `GitHub release must contain exactly one asset, found ${release.assets?.length ?? "invalid"}`,
+    );
+  }
+  const [asset] = release.assets;
+  if (!asset || asset.name !== expectedAssetName || asset.state !== "uploaded") {
+    throw new Error(`GitHub release asset is not the expected uploaded ${expectedAssetName}`);
+  }
+  if (expectedAssetId && String(asset.id ?? "") !== String(expectedAssetId)) {
+    throw new Error(
+      `GitHub release asset id changed from ${expectedAssetId} to ${asset.id ?? "missing"}`,
+    );
+  }
+  if (!/^[0-9a-f]{64}$/.test(expectedSha256)) {
+    throw new Error("Expected release SHA-256 must be 64 lowercase hexadecimal characters");
+  }
+  const digest = asset.digest ?? "";
+  if (digest && digest !== `sha256:${expectedSha256}`) {
+    throw new Error(`GitHub release asset digest does not match sha256:${expectedSha256}`);
+  }
+  if (typeof asset.id !== "number" && typeof asset.id !== "string") {
+    throw new Error("GitHub release asset id is missing");
+  }
+  return String(asset.id);
+}
+
 function assertNpmTag(tag) {
   if (!NPM_TAG_PATTERN.test(tag) || /^v?\d+(?:\.\d+){0,2}(?:-|$)/i.test(tag)) {
     throw new Error(`Unsafe npm dist-tag: ${tag || "<empty>"}`);
@@ -297,6 +368,25 @@ function runCli(args) {
       requireArgument(args, 1, "expected integrity"),
       requireArgument(args, 2, "actual integrity"),
       args[3] || "published artifact",
+    );
+    return;
+  }
+  if (command === "normalize-npm-view-integrity") {
+    console.log(normalizeNpmViewIntegrity(requireArgument(args, 1, "npm view JSON")));
+    return;
+  }
+  if (command === "release-asset-id") {
+    const release = JSON.parse(readFileSync(requireArgument(args, 1, "release JSON path"), "utf8"));
+    console.log(
+      validateGitHubReleaseSnapshot({
+        release,
+        expectedReleaseId: requireArgument(args, 2, "release id"),
+        expectedTag: requireArgument(args, 3, "release tag"),
+        expectedTarget: requireArgument(args, 4, "release target"),
+        expectedAssetName: requireArgument(args, 5, "asset name"),
+        expectedAssetId: args[6] || "",
+        expectedSha256: requireArgument(args, 7, "asset SHA-256"),
+      }),
     );
     return;
   }

@@ -8,8 +8,10 @@ import {
   decideGitHubLatest,
   decideNpmPublishTag,
   displayTagFromSemVer,
+  normalizeNpmViewIntegrity,
   parseSemVer,
   semVerFromDisplayTag,
+  validateGitHubReleaseSnapshot,
   verifySha512Sri,
 } from "../scripts/release-policy.mjs";
 
@@ -62,6 +64,56 @@ describe("release policy", () => {
       /does not match/,
     );
     expect(() => verifySha512Sri(integrity, integrity)).not.toThrow();
+  });
+
+  it("normalizes npm 12 single-result integrity shapes and rejects ambiguity", () => {
+    const integrity = canonicalSha512Sri(Buffer.from("immutable tarball"));
+    expect(normalizeNpmViewIntegrity(JSON.stringify(integrity))).toBe(integrity);
+    expect(normalizeNpmViewIntegrity(JSON.stringify([integrity]))).toBe(integrity);
+    expect(normalizeNpmViewIntegrity(JSON.stringify({ "dist.integrity": integrity }))).toBe(
+      integrity,
+    );
+    expect(() => normalizeNpmViewIntegrity(JSON.stringify([]))).toThrow(/exactly one/);
+    expect(() => normalizeNpmViewIntegrity(JSON.stringify([integrity, integrity]))).toThrow(
+      /exactly one/,
+    );
+    expect(() => normalizeNpmViewIntegrity(JSON.stringify(null))).toThrow(/canonical sha512/);
+  });
+
+  it("rejects ambiguous or replaced GitHub Release asset snapshots", () => {
+    const sha256 = "a".repeat(64);
+    const release = {
+      id: 123,
+      tag_name: "v01.02.05",
+      target_commitish: "b".repeat(40),
+      assets: [{ id: 456, name: "package.tgz", state: "uploaded", digest: null }],
+    };
+    const validate = (candidate: Record<string, unknown>, expectedAssetId = "") =>
+      validateGitHubReleaseSnapshot({
+        release: candidate,
+        expectedReleaseId: "123",
+        expectedTag: "v01.02.05",
+        expectedTarget: "b".repeat(40),
+        expectedAssetName: "package.tgz",
+        expectedAssetId,
+        expectedSha256: sha256,
+      });
+    expect(validate(release)).toBe("456");
+    expect(validate(release, "456")).toBe("456");
+    expect(
+      validate({ ...release, assets: [{ ...release.assets[0], digest: `sha256:${sha256}` }] }),
+    ).toBe("456");
+    expect(() => validate({ ...release, assets: [] })).toThrow(/exactly one/);
+    expect(() => validate({ ...release, assets: [...release.assets, release.assets[0]] })).toThrow(
+      /exactly one/,
+    );
+    expect(() => validate(release, "999")).toThrow(/asset id changed/);
+    expect(() =>
+      validate({
+        ...release,
+        assets: [{ ...release.assets[0], digest: `sha256:${"c".repeat(64)}` }],
+      }),
+    ).toThrow(/digest does not match/);
   });
 
   it("selects npm latest only monotonically and never for prereleases", () => {

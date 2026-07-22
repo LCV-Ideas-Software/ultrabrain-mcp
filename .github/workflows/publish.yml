@@ -674,64 +674,93 @@ jobs:
             "$PACKAGE_VERSION" "$PRIOR_LATEST_TAG")"
           echo "GitHub latest decision: candidate=$PACKAGE_VERSION prior=${PRIOR_LATEST_TAG:-missing} promote=$PROMOTE_LATEST."
 
-          release_path="repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}"
           release_json="$RUNNER_TEMP/release-${GITHUB_RUN_ID}.json"
-          release_error="$RUNNER_TEMP/release-${GITHUB_RUN_ID}.err"
-
-          if ! gh api --method GET "$release_path" >"$release_json" 2>"$release_error"; then
-            if ! grep -q 'HTTP 404' "$release_error"; then
-              cat "$release_error" >&2
-              echo "::error::Could not determine whether release $TAG already exists."
-              exit 1
+          load_release() {
+            local release_pages matching_releases matching_count
+            release_pages="$(gh api --method GET --paginate --slurp \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "repos/${GITHUB_REPOSITORY}/releases?per_page=100")"
+            matching_releases="$(jq -ce --arg tag "$TAG" \
+              '[.[][] | select(.tag_name == $tag)]' \
+              <<<"$release_pages")"
+            matching_count="$(jq -er 'length' <<<"$matching_releases")"
+            if [ "$matching_count" -gt 1 ]; then
+              echo "::error::Found $matching_count releases for exact tag $TAG; refusing ambiguous reconciliation." >&2
+              return 2
             fi
-
-            create_flags=(--draft --verify-tag)
-            if [ "$PRERELEASE" = "true" ]; then
-              create_flags+=(--prerelease)
+            if [ "$matching_count" -eq 0 ]; then
+              printf 'null\n' >"$release_json"
+              return 1
             fi
-            gh release create "$TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$VERIFIED_SHA" \
-              --title "ultrabrain-mcp $TAG" \
-              --notes-file release-notes.md \
-              "${create_flags[@]}"
-            gh api --method GET "$release_path" >"$release_json"
-            echo "Created recoverable draft release $TAG."
+            jq -e '.[0]' <<<"$matching_releases" >"$release_json"
+          }
+
+          load_status=0
+          load_release || load_status=$?
+          if [ "$load_status" -eq 1 ]; then
+            create_payload="$RUNNER_TEMP/create-release-${GITHUB_RUN_ID}.json"
+            jq -n \
+              --arg tag "$TAG" \
+              --arg target "$VERIFIED_SHA" \
+              --arg name "ultrabrain-mcp $TAG" \
+              --arg body "$(cat release-notes.md)" \
+              --argjson prerelease "$PRERELEASE" \
+              '{tag_name: $tag, target_commitish: $target, name: $name, body: $body,
+                draft: true, prerelease: $prerelease}' \
+              >"$create_payload"
+            gh api --method POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "repos/${GITHUB_REPOSITORY}/releases" \
+              --input "$create_payload" >"$release_json"
+            load_release
+            echo "Created recoverable draft release $TAG through the release API."
+          elif [ "$load_status" -ne 0 ]; then
+            exit "$load_status"
           fi
+
+          expected_title="ultrabrain-mcp $TAG"
+          expected_body="$(cat release-notes.md)"
+          release_id="$(jq -er '.id' "$release_json")"
+
+          verify_single_asset() {
+            local expected_asset_id="${1:-}"
+            local current_asset_id asset_verify_dir
+            load_release
+            current_asset_id="$(node scripts/release-policy.mjs release-asset-id \
+              "$release_json" "$release_id" "$TAG" "$VERIFIED_SHA" \
+              "$PACKAGE_TARBALL" "$expected_asset_id" "$PACKAGE_SHA256")"
+            asset_verify_dir="$(mktemp -d "${RUNNER_TEMP}/release-asset.XXXXXX")"
+            gh api --method GET \
+              -H "Accept: application/octet-stream" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${current_asset_id}" \
+              >"$asset_verify_dir/$PACKAGE_TARBALL"
+            echo "$PACKAGE_SHA256  $asset_verify_dir/$PACKAGE_TARBALL" | sha256sum --check --strict
+            asset_id="$current_asset_id"
+          }
 
           release_tag="$(jq -er '.tag_name' "$release_json")"
+          release_target="$(jq -er '.target_commitish' "$release_json")"
           release_draft="$(jq -er '.draft' "$release_json")"
+          release_title="$(jq -r '.name // ""' "$release_json")"
+          release_body="$(jq -r '.body // ""' "$release_json")"
           release_prerelease="$(jq -er '.prerelease' "$release_json")"
-          if [ "$release_tag" != "$TAG" ]; then
-            echo "::error::Release lookup returned tag '$release_tag', expected '$TAG'."
+          if [ "$release_tag" != "$TAG" ] || [ "$release_target" != "$VERIFIED_SHA" ]; then
+            echo "::error::Release identity mismatch (tag=$release_tag target=$release_target)."
             exit 1
           fi
-          if [ "$release_prerelease" != "$PRERELEASE" ]; then
-            if [ "$release_draft" != "true" ]; then
-              echo "::error::Published release $TAG has prerelease=$release_prerelease, expected $PRERELEASE."
-              exit 1
-            fi
-            gh release edit "$TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --prerelease="$PRERELEASE"
-            gh api --method GET "$release_path" >"$release_json"
-            release_prerelease="$(jq -er '.prerelease' "$release_json")"
-            if [ "$release_prerelease" != "$PRERELEASE" ]; then
-              echo "::error::Could not reconcile draft release classification for $TAG."
-              exit 1
-            fi
+          if [ "$release_draft" != "true" ] && \
+             { [ "$release_title" != "$expected_title" ] || [ "$release_body" != "$expected_body" ] || [ "$release_prerelease" != "$PRERELEASE" ]; }; then
+            echo "::error::Published release metadata differs from the immutable workflow contract; refusing to overwrite it."
+            exit 1
           fi
 
-          matching_assets="$(
-            jq --arg name "$PACKAGE_TARBALL" \
-              '[.assets[]? | select(.name == $name)] | length' \
-              "$release_json"
-          )"
-          unexpected_assets="$(
-            jq --arg name "$PACKAGE_TARBALL" \
-              '[.assets[]? | select(.name != $name)] | length' \
-              "$release_json"
-          )"
+          matching_assets="$(jq --arg name "$PACKAGE_TARBALL" \
+            '[.assets[]? | select(.name == $name)] | length' "$release_json")"
+          unexpected_assets="$(jq --arg name "$PACKAGE_TARBALL" \
+            '[.assets[]? | select(.name != $name)] | length' "$release_json")"
           if [ "$matching_assets" -gt 1 ] || [ "$unexpected_assets" -gt 0 ]; then
             echo "::error::Release $TAG has an ambiguous asset set (matching=$matching_assets unexpected=$unexpected_assets)."
             exit 1
@@ -741,79 +770,97 @@ jobs:
               echo "::error::Published release $TAG is missing immutable asset $PACKAGE_TARBALL."
               exit 1
             fi
-            gh release upload "$TAG" "artifacts/$PACKAGE_TARBALL" \
-              --repo "$GITHUB_REPOSITORY"
-            gh api --method GET "$release_path" >"$release_json"
-            matching_assets="$(
-              jq --arg name "$PACKAGE_TARBALL" \
-                '[.assets[]? | select(.name == $name)] | length' \
-                "$release_json"
-            )"
-            if [ "$matching_assets" -ne 1 ]; then
-              echo "::error::Draft recovery did not produce exactly one $PACKAGE_TARBALL asset."
-              exit 1
-            fi
+            encoded_asset_name="$(jq -rn --arg name "$PACKAGE_TARBALL" '$name | @uri')"
+            upload_json="$RUNNER_TEMP/upload-release-asset-${GITHUB_RUN_ID}.json"
+            curl --fail-with-body --silent --show-error \
+              --request POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@artifacts/$PACKAGE_TARBALL" \
+              --output "$upload_json" \
+              "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?name=${encoded_asset_name}"
+            jq -e --arg name "$PACKAGE_TARBALL" \
+              '.name == $name and .state == "uploaded"' "$upload_json" >/dev/null
           fi
 
-          asset_state="$(
-            jq -er --arg name "$PACKAGE_TARBALL" \
-              '.assets[] | select(.name == $name) | .state' \
-              "$release_json"
-          )"
-          asset_digest="$(
-            jq -r --arg name "$PACKAGE_TARBALL" \
-              '.assets[] | select(.name == $name) | (.digest // "")' \
-              "$release_json"
-          )"
-          if [ "$asset_state" != "uploaded" ]; then
-            echo "::error::Release asset $PACKAGE_TARBALL is in state '$asset_state', expected 'uploaded'."
+          verify_single_asset
+          validated_asset_id="$asset_id"
+
+          # Re-read the exact release and artifact immediately before the only
+          # visibility mutation. A concurrent extra/replacement asset blocks.
+          verify_single_asset "$validated_asset_id"
+          release_draft="$(jq -er '.draft' "$release_json")"
+          release_title="$(jq -r '.name // ""' "$release_json")"
+          release_body="$(jq -r '.body // ""' "$release_json")"
+          release_prerelease="$(jq -er '.prerelease' "$release_json")"
+          if [ "$release_draft" != "true" ] && \
+             { [ "$release_title" != "$expected_title" ] || [ "$release_body" != "$expected_body" ] || [ "$release_prerelease" != "$PRERELEASE" ]; }; then
+            echo "::error::Published release metadata changed before latest reconciliation."
             exit 1
           fi
-          if [ -n "$asset_digest" ]; then
-            if [ "$asset_digest" != "sha256:$PACKAGE_SHA256" ]; then
-              echo "::error::Release asset digest mismatch (expected sha256:$PACKAGE_SHA256, found $asset_digest)."
-              exit 1
-            fi
-          else
-            mkdir -p "$RUNNER_TEMP/existing-release-asset"
-            gh release download "$TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --pattern "$PACKAGE_TARBALL" \
-              --dir "$RUNNER_TEMP/existing-release-asset"
-            echo "$PACKAGE_SHA256  $RUNNER_TEMP/existing-release-asset/$PACKAGE_TARBALL" | sha256sum --check --strict
+
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          CURRENT_TAG_SHA="$(git rev-parse "refs/tags/$TAG^{commit}")"
+          git fetch --force origin "refs/heads/main:refs/remotes/origin/main"
+          CURRENT_MAIN_SHA="$(git rev-parse refs/remotes/origin/main)"
+          if [ "$CURRENT_TAG_SHA" != "$VERIFIED_SHA" ] || ! git merge-base --is-ancestor "$VERIFIED_SHA" "$CURRENT_MAIN_SHA"; then
+            echo "::error::Release identity changed before reconciliation (tag=$CURRENT_TAG_SHA main=$CURRENT_MAIN_SHA expected=$VERIFIED_SHA)."
+            exit 1
           fi
 
-          release_draft="$(jq -er '.draft' "$release_json")"
+          LATEST_DECISION_BASE="$(read_latest_release_tag)"
+          PROMOTE_LATEST="$(node scripts/release-policy.mjs github-latest \
+            "$PACKAGE_VERSION" "$LATEST_DECISION_BASE")"
+          latest_is_reconciled=false
+          if { [ "$PROMOTE_LATEST" = "true" ] && [ "$LATEST_DECISION_BASE" = "$TAG" ]; } || \
+             { [ "$PROMOTE_LATEST" = "false" ] && [ "$LATEST_DECISION_BASE" != "$TAG" ]; }; then
+            latest_is_reconciled=true
+          fi
+
           if [ "$release_draft" = "true" ]; then
-            CURRENT_LATEST_TAG="$(read_latest_release_tag)"
-            PROMOTE_LATEST="$(node scripts/release-policy.mjs github-latest \
-              "$PACKAGE_VERSION" "$CURRENT_LATEST_TAG")"
-            gh release edit "$TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --draft=false \
-              --prerelease="$PRERELEASE" \
-              --latest="$PROMOTE_LATEST" \
-              --verify-tag
-            gh api --method GET "$release_path" >"$release_json"
+            publish_payload="$RUNNER_TEMP/publish-release-${GITHUB_RUN_ID}.json"
+            jq -n \
+              --arg tag "$TAG" \
+              --arg target "$VERIFIED_SHA" \
+              --arg name "$expected_title" \
+              --arg body "$expected_body" \
+              --argjson prerelease "$PRERELEASE" \
+              --arg make_latest "$PROMOTE_LATEST" \
+              '{tag_name: $tag, target_commitish: $target, name: $name, body: $body,
+                draft: false, prerelease: $prerelease, make_latest: $make_latest}' \
+              >"$publish_payload"
+            gh api --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+              --input "$publish_payload" >"$release_json"
+          elif [ "$latest_is_reconciled" != "true" ]; then
+            latest_payload="$RUNNER_TEMP/latest-release-${GITHUB_RUN_ID}.json"
+            jq -n --arg make_latest "$PROMOTE_LATEST" \
+              '{make_latest: $make_latest}' >"$latest_payload"
+            gh api --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+              --input "$latest_payload" >"$release_json"
           fi
 
+          # A final authenticated download proves that the public release still
+          # exposes the same asset ID and bytes after publication/latest repair.
+          verify_single_asset "$validated_asset_id"
           final_draft="$(jq -er '.draft' "$release_json")"
           final_prerelease="$(jq -er '.prerelease' "$release_json")"
-          final_digest="$(
-            jq -r --arg name "$PACKAGE_TARBALL" \
-              '.assets[] | select(.name == $name) | (.digest // "")' \
-              "$release_json"
-          )"
-          if [ "$final_draft" != "false" ] || [ "$final_prerelease" != "$PRERELEASE" ]; then
-            echo "::error::Release $TAG did not converge (draft=$final_draft prerelease=$final_prerelease)."
-            exit 1
-          fi
-          if [ -n "$final_digest" ] && [ "$final_digest" != "sha256:$PACKAGE_SHA256" ]; then
-            echo "::error::Published release asset digest changed unexpectedly: $final_digest."
+          final_title="$(jq -r '.name // ""' "$release_json")"
+          final_body="$(jq -r '.body // ""' "$release_json")"
+          if [ "$final_draft" != "false" ] || [ "$final_prerelease" != "$PRERELEASE" ] || \
+             [ "$final_title" != "$expected_title" ] || [ "$final_body" != "$expected_body" ]; then
+            echo "::error::Release $TAG final metadata did not converge without data loss."
             exit 1
           fi
           ACTUAL_LATEST_TAG="$(read_latest_release_tag)"
           node scripts/release-policy.mjs assert-github-latest \
-            "$PACKAGE_VERSION" "$PRIOR_LATEST_TAG" "$ACTUAL_LATEST_TAG" "$PROMOTE_LATEST"
+            "$PACKAGE_VERSION" "$LATEST_DECISION_BASE" "$ACTUAL_LATEST_TAG" "$PROMOTE_LATEST"
           echo "Release $TAG is published with verified asset $PACKAGE_TARBALL (sha256:$PACKAGE_SHA256); GitHub latest remains monotonic at ${ACTUAL_LATEST_TAG:-missing}."
     timeout-minutes: 60

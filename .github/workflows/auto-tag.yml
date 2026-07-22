@@ -242,6 +242,8 @@ jobs:
             canonical_exists=true
           fi
 
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+
           # A published canonical release with exactly the immutable package
           # asset is the durable completion marker. Draft, missing, legacy-only,
           # or malformed states are retried through the idempotent publisher.
@@ -267,12 +269,66 @@ jobs:
             if jq -e --arg name "$expected_asset" \
               '.[0].draft == false and
                ([.[0].assets[]? | select(
-                 .name == $name and .state == "uploaded" and
-                 ((.digest // "") | startswith("sha256:"))
+                 .name == $name and .state == "uploaded"
                )] | length) == 1 and
                (.[0].assets | length) == 1' \
               <<<"$canonical_releases" >/dev/null; then
-              complete=true
+              publish_workflow_id="$(gh api --method GET \
+                "repos/${GITHUB_REPOSITORY}/actions/workflows/publish.yml" --jq '.id')"
+              publish_pages="$(gh api --method GET --paginate --slurp \
+                "repos/${GITHUB_REPOSITORY}/actions/workflows/${publish_workflow_id}/runs?event=workflow_dispatch&branch=${TAG}&status=success&per_page=100")"
+              if jq -e --arg sha "$target_sha" --arg tag "$TAG" \
+                'any(.[].workflow_runs[];
+                  .head_sha == $sha and
+                  .head_branch == $tag and
+                  .event == "workflow_dispatch" and
+                  .status == "completed" and
+                  .conclusion == "success")' \
+                <<<"$publish_pages" >/dev/null; then
+                asset_digest="$(jq -r --arg name "$expected_asset" \
+                  '.[0].assets[] | select(.name == $name) | (.digest // "")' \
+                  <<<"$canonical_releases")"
+                if [ -n "$asset_digest" ] && [[ ! "$asset_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                  echo "::error::Release asset has an unsupported or malformed digest: $asset_digest."
+                  exit 1
+                fi
+
+                package_integrity_view="$(npm view "${PACKAGE_NAME}@${VERSION}" dist.integrity \
+                  --json --registry=https://registry.npmjs.org)"
+                package_integrity="$(node scripts/release-policy.mjs \
+                  normalize-npm-view-integrity "$package_integrity_view")"
+                completion_dir="$(mktemp -d "${RUNNER_TEMP}/release-completion.XXXXXX")"
+                gh release download "$TAG" \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --pattern "$expected_asset" \
+                  --dir "$completion_dir"
+                node scripts/release-policy.mjs verify-file-sri \
+                  "$completion_dir/$expected_asset" "$package_integrity"
+                downloaded_sha256="$(sha256sum "$completion_dir/$expected_asset" | awk '{print $1}')"
+                if [ -n "$asset_digest" ] && [ "$asset_digest" != "sha256:$downloaded_sha256" ]; then
+                  echo "::error::Release asset digest does not match the downloaded package."
+                  exit 1
+                fi
+                latest_error="$RUNNER_TEMP/latest-release-${GITHUB_RUN_ID}.err"
+                if latest_json="$(gh api --method GET \
+                  "repos/$GITHUB_REPOSITORY/releases/latest" 2>"$latest_error")"; then
+                  actual_latest_tag="$(jq -er '.tag_name' <<<"$latest_json")"
+                elif grep -q 'HTTP 404' "$latest_error"; then
+                  actual_latest_tag=""
+                else
+                  cat "$latest_error" >&2
+                  echo "::error::Could not verify the GitHub latest-release pointer."
+                  exit 1
+                fi
+                should_promote="$(node scripts/release-policy.mjs github-latest \
+                  "$VERSION" "$actual_latest_tag")"
+                if { [ "$should_promote" = "true" ] && [ "$actual_latest_tag" = "$TAG" ]; } || \
+                   { [ "$should_promote" = "false" ] && [ "$actual_latest_tag" != "$TAG" ]; }; then
+                  complete=true
+                else
+                  echo "GitHub latest requires reconciliation (actual=${actual_latest_tag:-missing}; candidate=$TAG; promote=$should_promote)."
+                fi
+              fi
             fi
           fi
 
@@ -336,8 +392,6 @@ jobs:
           done
 
           deadline=$((SECONDS + 1200))
-          readonly max_cancelled_attempts=3
-          declare -A rerun_requests=()
           gates_ready=false
           while [ "$SECONDS" -lt "$deadline" ]; do
             pages="$(gh api --method GET --paginate --slurp \
@@ -345,53 +399,6 @@ jobs:
             runs="$(jq -ce --arg sha "$TARGET_SHA" \
               '[.[].workflow_runs[] | select(.head_sha == $sha and .event == "push")]' \
               <<<"$pages")"
-
-            # A newer push can cancel an older target's validation runs. GitHub
-            # re-runs preserve the original GITHUB_SHA and GITHUB_REF, so only
-            # these six side-effect-free, exact-target gates are retried here.
-            # Cap attempts to prevent an unbounded recovery loop.
-            rerun_requested=false
-            for gate in "${required_gates[@]}"; do
-              workflow_id="${gate%%:*}"
-              expected_path="${gate#*:}"
-              cancelled_run="$(jq -c \
-                --argjson workflow_id "$workflow_id" \
-                --arg path "$expected_path" \
-                '[.[] | select(
-                  .workflow_id == $workflow_id and
-                  .path == $path and
-                  .head_branch == "main" and
-                  .status == "completed" and
-                  .conclusion == "cancelled"
-                )] | sort_by([.created_at, .id]) | last // null' \
-                <<<"$runs")"
-              if [ "$cancelled_run" = null ]; then
-                continue
-              fi
-
-              run_id="$(jq -er '.id' <<<"$cancelled_run")"
-              run_attempt="$(jq -er '.run_attempt' <<<"$cancelled_run")"
-              if [ "$run_attempt" -ge "$max_cancelled_attempts" ]; then
-                echo "::error::Required exact-target gate $expected_path was cancelled at attempt $run_attempt; automatic retries are capped at $max_cancelled_attempts."
-                exit 1
-              fi
-
-              rerun_key="${run_id}:${run_attempt}"
-              if [ -z "${rerun_requests[$rerun_key]:-}" ]; then
-                gh api --method POST \
-                  -H "Accept: application/vnd.github+json" \
-                  -H "X-GitHub-Api-Version: 2026-03-10" \
-                  "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/rerun" \
-                  >/dev/null
-                rerun_requests["$rerun_key"]=true
-                echo "::notice::Re-running cancelled exact-target gate $expected_path run $run_id attempt $run_attempt at $TARGET_SHA."
-              fi
-              rerun_requested=true
-            done
-            if [ "$rerun_requested" = true ]; then
-              sleep 15
-              continue
-            fi
 
             observed_failures="$(jq -c '[.[] | select(
               .status == "completed" and

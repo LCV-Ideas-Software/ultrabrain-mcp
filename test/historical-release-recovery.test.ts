@@ -538,6 +538,23 @@ describe("recovery workflow safety contract", () => {
     expect(workflow).not.toMatch(/npm publish|dist-tag add|gh release (?:edit|upload|create)/);
   });
 
+  it("keeps JSON and binary GitHub API Accept headers mutually exclusive", () => {
+    const jsonHelper = workflow.slice(
+      workflow.indexOf("github_api()"),
+      workflow.indexOf("github_binary_api()"),
+    );
+    const binaryHelper = workflow.slice(
+      workflow.indexOf("github_binary_api()"),
+      workflow.indexOf("admin_api()"),
+    );
+    expect(jsonHelper).toContain("Accept: application/vnd.github+json");
+    expect(jsonHelper).not.toContain("Accept: application/octet-stream");
+    expect(binaryHelper).toContain("Accept: application/octet-stream");
+    expect(binaryHelper).not.toContain("Accept: application/vnd.github+json");
+    expect(workflow.match(/github_binary_api --method GET/g)).toHaveLength(2);
+    expect(workflow).not.toMatch(/github_api --method GET -H "Accept: application\/octet-stream"/);
+  });
+
   it("removes exported secrets before subprocesses and revalidates before mutation", () => {
     const recoveryStep = workflow.indexOf("Recover the exact historical draft");
     const unsetSecrets = workflow.indexOf(

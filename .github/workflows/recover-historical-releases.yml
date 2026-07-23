@@ -183,6 +183,11 @@ jobs:
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2026-03-10" "$@"
           }
+          github_binary_api() {
+            GH_TOKEN="$github_token" gh api \
+              -H "Accept: application/octet-stream" \
+              -H "X-GitHub-Api-Version: 2026-03-10" "$@"
+          }
           admin_api() {
             GH_TOKEN="$admin_token" gh api \
               -H "Accept: application/vnd.github+json" \
@@ -320,7 +325,7 @@ jobs:
               "$latest_tag_ref_json" >/dev/null
 
             latest_asset="$latest_dir/$latest_release_asset_name"
-            github_api --method GET -H "Accept: application/octet-stream" \
+            github_binary_api --method GET \
               "repos/${GITHUB_REPOSITORY}/releases/assets/${latest_release_asset_id}" \
               >"$latest_asset"
             echo "$latest_release_asset_sha256  $latest_asset" | sha256sum --check --strict
@@ -477,7 +482,7 @@ jobs:
           verify_release_asset_bytes() {
             local phase="$1" target
             target="$RUNNER_TEMP/release-asset-${phase}-${validated_asset_id}-${GITHUB_RUN_ID}.tgz"
-            github_api --method GET -H "Accept: application/octet-stream" \
+            github_binary_api --method GET \
               "repos/${GITHUB_REPOSITORY}/releases/assets/${validated_asset_id}" >"$target"
             echo "$package_sha256  $target" | sha256sum --check --strict
             node scripts/release-policy.mjs verify-file-sri "$target" "$package_sri"

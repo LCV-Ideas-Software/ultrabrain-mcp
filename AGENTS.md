@@ -42,7 +42,7 @@ MCP client or a smoke harness; stdio MCP servers wait for protocol input.
 - The first public release is `v01.00.00` from npm package version `1.0.0`.
 - `publish.yml` publishes to npmjs.com and GitHub Packages, then creates the GitHub Release.
 - GitHub Pages serves `site/` through the custom domain `ultrabrain-mcp.lcv.dev`.
-- Workflows must remain integrated with StepSecurity Harden-Runner.
+- Third-party actions must remain pinned to reviewed immutable commit SHAs.
 
 ## Security
 

@@ -16,7 +16,7 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
-# .npmrc tracked: contains \ interpolation only (no secrets); env-var injected from STEPSECURITY_NPM_TOKEN org secret in CI.
+# Keep the repository-level npm registry policy tracked.
 !.npmrc
 .ultrabrain/
 .deepseek/

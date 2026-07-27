@@ -40,11 +40,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions: write-all
     steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
-        with:
-          egress-policy: audit
-
       - name: Resolve the trusted main candidate
         id: trigger
         env:
@@ -348,7 +343,6 @@ jobs:
           CI_WORKFLOW_ID: "275133464"
           CODEQL_WORKFLOW_ID: "275518911"
           FORMAT_WORKFLOW_ID: "275133467"
-          SOCKET_WORKFLOW_ID: "281151515"
           SCORECARD_WORKFLOW_ID: "275133471"
         run: |
           set -euo pipefail
@@ -373,7 +367,6 @@ jobs:
             "$CI_WORKFLOW_ID:.github/workflows/ci.yml"
             "$CODEQL_WORKFLOW_ID:.github/workflows/codeql.yml"
             "$FORMAT_WORKFLOW_ID:.github/workflows/format-public.yml"
-            "$SOCKET_WORKFLOW_ID:.github/workflows/socket.yml"
             "$SCORECARD_WORKFLOW_ID:.github/workflows/scorecard.yml"
             "$ZIZMOR_WORKFLOW_ID:.github/workflows/zizmor.yml"
           )

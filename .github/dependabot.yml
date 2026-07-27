@@ -1,24 +1,8 @@
 version: 2
 
-# StepSecurity Secure Registry auth (matches project .npmrc).
-# Dependabot needs its own auth context — Actions secrets do not
-# propagate to the Dependabot service. The `DEPENDABOT_STEPSECURITY_NPM_TOKEN`
-# org secret carries the same proxy token used by CI workflows via the
-# Actions secret `STEPSECURITY_NPM_TOKEN`. Adding this `registries:`
-# block restores Dependabot's ability to resolve versions through the
-# StepSecurity proxy after `.npmrc` switched the default registry from
-# npmjs.org to registry.stepsecurity.io/javascript.
-registries:
-  stepsecurity-javascript:
-    type: npm-registry
-    url: https://registry.stepsecurity.io/javascript
-    token: ${{ secrets.DEPENDABOT_STEPSECURITY_NPM_TOKEN }}
-
 updates:
   - package-ecosystem: npm
     directory: "/"
-    registries:
-      - stepsecurity-javascript
     schedule:
       interval: "daily"
       time: "01:00"
@@ -41,22 +25,6 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: scope
-
-  - package-ecosystem: pip
-    directory: "/"
-    schedule:
-      interval: "daily"
-      time: "01:00"
-      timezone: "America/Los_Angeles"
-    open-pull-requests-limit: 10
-    labels:
-      - dependencies
-    commit-message:
-      prefix: "chore(python-deps)"
-      include: scope
-    allow:
-      - dependency-name: socketsecurity
-      - dependency-name: gitpython
 
   - package-ecosystem: github-actions
     directory: "/"

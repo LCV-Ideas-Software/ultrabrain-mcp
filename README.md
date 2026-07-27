@@ -35,7 +35,7 @@ The version history at a glance:
 | `v01.02.00` | `1.2.0` | 2026-07-17 | Audit remediation: correctness cluster (persistence, state machine, validation, protocol), a `vitest` unit-test layer, and Tier-1 features (mermaid review, template coverage, related thoughts, structuredContent). |
 | `v01.01.01` | `1.1.1` | 2026-05-15 | 4-gate quality directive compliance: added Biome, aligned CI, applied cosmetic source cleanup, and synchronized SERVER_VERSION to `1.1.1`. |
 | `v01.01.00` | `1.1.0` | 2026-05-12 | Refinements for depth enforcement, active thought-reference validation, update record returns, real markdown merge output, optional file persistence, and expanded smoke coverage.      |
-| `v01.00.00` | `1.0.0` | 2026-05-12 | First LCV Ultrabrain MCP release: branded tool surface, session lifecycle, branching, merging, validation, analysis, prompts, resources, Pages, CI, publish, and StepSecurity baseline. |
+| `v01.00.00` | `1.0.0` | 2026-05-12 | First LCV Ultrabrain MCP release: branded tool surface, session lifecycle, branching, merging, validation, analysis, prompts, resources, Pages, CI, and publish automation. |
 
 ## What It Does
 
@@ -138,7 +138,7 @@ This repository follows the LCV package baseline:
 - Pages deploys the static site from `site/` using `ultrabrain-mcp.lcv.dev`.
 - Auto-tagging derives padded public tags from `package.json` version.
 - Publish workflow releases to npmjs.com, GitHub Packages, and GitHub Releases.
-- StepSecurity Harden-Runner is enabled on workflows.
+- Third-party actions are pinned to reviewed immutable commit SHAs.
 
 ## Research
 

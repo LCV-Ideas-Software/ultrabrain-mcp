@@ -2,18 +2,25 @@
 
 ## Unreleased
 
-**Historical-release recovery hardening.** Adds a one-time, fail-closed
-recovery workflow for the unambiguous 1.2.5 and 1.2.6 GitHub Release drafts
-while preserving both ambiguous 1.2.4 drafts. Registry verification now runs
-outside the project npm configuration with registry-scoped ephemeral
-authentication, and every mutation is gated by exact release, artifact, tag,
-environment, immutable-policy, and cryptographically verified attestation
-identities. The existing immutable 1.2.7 release remains latest; this change
-does not publish, delete, or recreate any package, tag, release, or asset.
-Final mutation boundaries now re-read the exact empty draft immediately before
-the first asset POST and the exact single-asset draft immediately before the
-publish PATCH. Temporary-registry cleanup also preserves prior failures and
-fails the job if cleanup cannot complete.
+## 1.2.8 - 2026-07-28
+
+**Patch — completed historical recovery and CI dependency hygiene.** The
+provenance-bound recovery successfully published the exact 1.2.5 and 1.2.6
+GitHub Release drafts as immutable releases with their verified package
+assets. Both ambiguous 1.2.4 drafts remain intentionally untouched as audit
+evidence. With every safe target completed, the one-time mutating recovery
+workflow is retired from the active Actions surface. Its helper, executable
+contract tests, exact workflow fixture, runbook, and attestation fixture remain
+as historical audit evidence.
+
+The development bundle now incorporates `@modelcontextprotocol/sdk` 1.30.0.
+Its clean-consumer regression reads the installed SDK identity dynamically and
+requires that exact name and version in the bundled third-party license
+inventory, preventing future dependency bumps from repeating the former
+hard-coded-version failure. All active Socket Security and StepSecurity
+repository integrations are removed. Dependabot automation uses the current
+settling controller, and Zizmor runs through the checksum-verified central
+workflow. No runtime tool API or persisted-state format changes.
 
 ## 1.2.7 - 2026-07-22
 

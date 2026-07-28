@@ -2,7 +2,7 @@
 
 ## Supported status
 
-Latest supported release: v01.01.01 for npm package 1.1.1. The current main branch is also supported for security fixes until the next release is published.
+Latest supported release: v01.02.08 for npm package 1.2.8. The current main branch is also supported for security fixes until the next release is published.
 
 ## Reporting a vulnerability
 

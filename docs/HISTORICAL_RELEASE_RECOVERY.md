@@ -1,10 +1,27 @@
 # Historical GitHub Release recovery
 
-This runbook covers the narrowly scoped recovery of the historical GitHub
-Release drafts for `v01.02.04`, `v01.02.05`, and `v01.02.06`. It does not
-publish packages, move or recreate tags, delete releases or assets, or change
-an npm dist-tag. The already published, immutable `v01.02.07` release must
-remain the latest release throughout the operation.
+## Final state
+
+The narrowly scoped recovery is complete. Workflow runs `29973384048` and
+`29973557617` published the exact `v01.02.05` and `v01.02.06` drafts as
+immutable releases with verified assets. Release `358220705` contains asset
+`486646886`, and release `358239662` contains asset `486649859`. The two empty,
+ambiguous `v01.02.04` drafts (`358159754` and `358213427`) remain deliberately
+untouched.
+
+The active one-time workflow was retired in `v01.02.08` after these live
+identities were revalidated. Its helper, contract tests, exact workflow fixture,
+this runbook, and the `github-release-verify-v01.02.07.json` attestation fixture
+remain as audit evidence. The procedures below are archived and are no longer
+dispatchable from the repository.
+
+## Archived runbook
+
+This runbook recorded the narrowly scoped recovery of the historical GitHub
+Release drafts for `v01.02.04`, `v01.02.05`, and `v01.02.06`. It did not publish
+packages, move or recreate tags, delete releases or assets, or change an npm
+dist-tag. The already published, immutable `v01.02.07` release remained the
+latest release throughout the operation.
 
 The recovery workflow is intentionally fail-closed. All live identities and
 digests are frozen in `scripts/historical-release-recovery.mjs`; any drift
@@ -12,16 +29,16 @@ requires a separately reviewed change instead of a runtime guess.
 
 ## Recovery inventory
 
-| Tag         |                  GitHub Release |                      Source run |               Source artifact | State                                          |
-| ----------- | ------------------------------: | ------------------------------: | ----------------------------: | ---------------------------------------------- |
-| `v01.02.04` | `358159754` **and** `358213427` | `29937668007` and `29944483777` | `8536818544` and `8539562391` | Blocked: no authoritative run-to-draft binding |
-| `v01.02.05` |                     `358220705` |                   `29945360970` |                  `8539912901` | Recoverable after all live gates pass          |
-| `v01.02.06` |                     `358239662` |                   `29947725605` |                  `8540849394` | Recoverable after all live gates pass          |
+| Tag         |                  GitHub Release |                      Source run |               Source artifact | State                                            |
+| ----------- | ------------------------------: | ------------------------------: | ----------------------------: | ------------------------------------------------ |
+| `v01.02.04` | `358159754` **and** `358213427` | `29937668007` and `29944483777` | `8536818544` and `8539562391` | Preserved: no authoritative run-to-draft binding |
+| `v01.02.05` |                     `358220705` |                   `29945360970` |                  `8539912901` | Completed by recovery run `29973384048`          |
+| `v01.02.06` |                     `358239662` |                   `29947725605` |                  `8540849394` | Completed by recovery run `29973557617`          |
 
-The immutable latest release is exactly release `358281062`, tag
-`v01.02.07`, with asset `486361797`. A different latest release, even a valid
-newer one, stops this one-time workflow so that its safety proof can be
-reviewed and updated explicitly.
+At recovery time, the immutable latest release was exactly release `358281062`,
+tag `v01.02.07`, with asset `486361797`. A different latest release, even a
+valid newer one, stopped the one-time workflow so that its safety proof could
+be reviewed and updated explicitly.
 
 ### Why `v01.02.04` is blocked
 

@@ -24,7 +24,7 @@ import {
 } from "../scripts/historical-release-recovery.mjs";
 
 const workflow = readFileSync(
-  new URL("../.github/workflows/recover-historical-releases.yml", import.meta.url),
+  new URL("./fixtures/recover-historical-releases.yml", import.meta.url),
   "utf8",
 );
 const liveLatestAttestationFixture = JSON.parse(

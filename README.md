@@ -20,7 +20,7 @@
 
 **Install.** `npm install -g @lcv-ideas-software/ultrabrain-mcp` from npmjs.com, or `npm install -g @lcv-ideas-software/ultrabrain-mcp --registry=https://npm.pkg.github.com` from the GitHub Packages mirror.
 
-**Status.** Stable. Current release: **v01.02.02** (npm package `1.2.2`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
+**Status.** Stable. Current release: **v01.02.08** (npm package `1.2.8`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
 
 First publication started at **v01.00.00**. Public GitHub tags use the LCV display convention `v00.00.00`; npm keeps normal SemVer.
 
@@ -28,14 +28,20 @@ First publication started at **v01.00.00**. Public GitHub tags use the LCV displ
 
 The version history at a glance:
 
-| Release     | Package | Date       | Notes                                                                                                                                                                                   |
-| ----------- | ------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `v01.02.02` | `1.2.2` | 2026-07-21 | Security patch: updates transitive `body-parser` to 2.3.0, restoring request-size enforcement for invalid limit values (GHSA-v422-hmwv-36x6 / CVE-2026-12590). |
-| `v01.02.01` | `1.2.1` | 2026-07-17 | Retro cross-review follow-up: `export` json+limit filters branches to the retained thoughts (latent leak, not tool-reachable), with a regression test. |
-| `v01.02.00` | `1.2.0` | 2026-07-17 | Audit remediation: correctness cluster (persistence, state machine, validation, protocol), a `vitest` unit-test layer, and Tier-1 features (mermaid review, template coverage, related thoughts, structuredContent). |
-| `v01.01.01` | `1.1.1` | 2026-05-15 | 4-gate quality directive compliance: added Biome, aligned CI, applied cosmetic source cleanup, and synchronized SERVER_VERSION to `1.1.1`. |
-| `v01.01.00` | `1.1.0` | 2026-05-12 | Refinements for depth enforcement, active thought-reference validation, update record returns, real markdown merge output, optional file persistence, and expanded smoke coverage.      |
-| `v01.00.00` | `1.0.0` | 2026-05-12 | First LCV Ultrabrain MCP release: branded tool surface, session lifecycle, branching, merging, validation, analysis, prompts, resources, Pages, CI, publish, and StepSecurity baseline. |
+| Release     | Package | Date       | Notes                                                                                                                                                                                                                                      |
+| ----------- | ------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `v01.02.08` | `1.2.8` | 2026-07-28 | Completes the provenance-bound 1.2.5/1.2.6 release recovery, preserves the ambiguous 1.2.4 drafts as audit evidence, bundles MCP SDK 1.30.0, removes Socket/StepSecurity integrations, and makes the SDK license regression version-aware. |
+| `v01.02.07` | `1.2.7` | 2026-07-22 | Makes draft-release discovery eventual-consistency-safe by waiting for the exact server-issued release id before any asset upload.                                                                                                         |
+| `v01.02.06` | `1.2.6` | 2026-07-22 | Makes immutable release reconciliation preserve valid `false` boolean metadata at every release boundary.                                                                                                                                  |
+| `v01.02.05` | `1.2.5` | 2026-07-22 | Binds draft discovery, mutations, asset transfers, and final verification to the exact immutable release identity.                                                                                                                         |
+| `v01.02.04` | `1.2.4` | 2026-07-22 | Corrects npm tarball publication and adds provenance-safe tag/release recovery while preserving the immutable audit trail.                                                                                                                 |
+| `v01.02.03` | `1.2.3` | 2026-07-22 | Ships a self-contained MCP bundle, clean-consumer verification, and provenance-bound multi-registry publication.                                                                                                                           |
+| `v01.02.02` | `1.2.2` | 2026-07-21 | Security patch: updates transitive `body-parser` to 2.3.0, restoring request-size enforcement for invalid limit values (GHSA-v422-hmwv-36x6 / CVE-2026-12590).                                                                             |
+| `v01.02.01` | `1.2.1` | 2026-07-17 | Retro cross-review follow-up: `export` json+limit filters branches to the retained thoughts (latent leak, not tool-reachable), with a regression test.                                                                                     |
+| `v01.02.00` | `1.2.0` | 2026-07-17 | Audit remediation: correctness cluster (persistence, state machine, validation, protocol), a `vitest` unit-test layer, and Tier-1 features (mermaid review, template coverage, related thoughts, structuredContent).                       |
+| `v01.01.01` | `1.1.1` | 2026-05-15 | 4-gate quality directive compliance: added Biome, aligned CI, applied cosmetic source cleanup, and synchronized SERVER_VERSION to `1.1.1`.                                                                                                 |
+| `v01.01.00` | `1.1.0` | 2026-05-12 | Refinements for depth enforcement, active thought-reference validation, update record returns, real markdown merge output, optional file persistence, and expanded smoke coverage.                                                         |
+| `v01.00.00` | `1.0.0` | 2026-05-12 | First LCV Ultrabrain MCP release: branded tool surface, session lifecycle, branching, merging, validation, analysis, prompts, resources, Pages, CI, and publish automation.                                                                |
 
 ## What It Does
 
@@ -138,7 +144,7 @@ This repository follows the LCV package baseline:
 - Pages deploys the static site from `site/` using `ultrabrain-mcp.lcv.dev`.
 - Auto-tagging derives padded public tags from `package.json` version.
 - Publish workflow releases to npmjs.com, GitHub Packages, and GitHub Releases.
-- StepSecurity Harden-Runner is enabled on workflows.
+- Third-party actions are pinned to reviewed immutable commit SHAs.
 
 ## Research
 

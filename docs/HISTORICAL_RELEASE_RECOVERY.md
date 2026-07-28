@@ -10,10 +10,13 @@ ambiguous `v01.02.04` drafts (`358159754` and `358213427`) remain deliberately
 untouched.
 
 The active one-time workflow was retired in `v01.02.08` after these live
-identities were revalidated. Its helper, contract tests, exact workflow fixture,
-this runbook, and the `github-release-verify-v01.02.07.json` attestation fixture
-remain as audit evidence. The procedures below are archived and are no longer
-dispatchable from the repository.
+identities were revalidated. Its unshipped helper remains under `scripts/` only
+for its executable contract tests and is excluded explicitly from CodeQL
+extraction because it can no longer be reached by Actions. The exact workflow
+fixture, this runbook, and the
+`github-release-verify-v01.02.07.json` attestation fixture remain as audit
+evidence. The procedures below are archived and are no longer dispatchable from
+the repository.
 
 ## Archived runbook
 

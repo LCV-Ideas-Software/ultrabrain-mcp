@@ -9,9 +9,10 @@ provenance-bound recovery successfully published the exact 1.2.5 and 1.2.6
 GitHub Release drafts as immutable releases with their verified package
 assets. Both ambiguous 1.2.4 drafts remain intentionally untouched as audit
 evidence. With every safe target completed, the one-time mutating recovery
-workflow is retired from the active Actions surface. Its helper, executable
-contract tests, exact workflow fixture, runbook, and attestation fixture remain
-as historical audit evidence.
+workflow is retired from the active Actions surface. Its unshipped helper is
+excluded explicitly from CodeQL extraction and remains executable only by its
+contract tests; the exact workflow fixture, runbook, and attestation fixture
+remain as historical audit evidence.
 
 The development bundle now incorporates `@modelcontextprotocol/sdk` 1.30.0.
 Its clean-consumer regression reads the installed SDK identity dynamically and

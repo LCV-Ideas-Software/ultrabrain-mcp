@@ -4,12 +4,11 @@ name: Auto-tag on version bump
 # shape and may include prerelease labels; the display tag is derived from the
 # numeric base version.
 #
-# Every run derives one immutable release target from trusted main history. A
-# later main commit or a transient publication failure therefore cannot lose a
-# version bump: queued, scheduled, and manual-main recovery runs converge on
-# the first commit that introduced the still-current version. Existing tags
-# remain authoritative and are never moved or deleted. Publication starts only
-# after every push gate and both CodeQL SARIF categories are clean for that
+# Every run derives one immutable release target from trusted main history.
+# Before a tag exists, a later successful CI commit in the same version epoch
+# can absorb a correction to a failed first candidate. Once created, existing
+# tags remain authoritative and are never moved or deleted. Publication starts
+# only after every push gate and both CodeQL SARIF categories are clean for that
 # exact target SHA.
 on:
   workflow_run:
@@ -179,11 +178,13 @@ jobs:
           target_sha="${canonical_sha:-$legacy_sha}"
           if [ -z "$target_sha" ]; then
             # Walk only the trusted first-parent main history. The earliest
-            # commit in the contiguous current-version segment is the unique
-            # version-introduction target that later no-op commits may recover.
-            target_sha="$CANDIDATE_SHA"
+            # commit in the contiguous current-version segment records the
+            # version boundary. With no tag yet, the successful CI candidate is
+            # the release target so a security correction can replace a failed
+            # first candidate without moving any immutable identity.
+            version_boundary_sha="$CANDIDATE_SHA"
             previous_version=""
-            while parent_sha="$(git rev-parse "${target_sha}^1" 2>/dev/null)"; do
+            while parent_sha="$(git rev-parse "${version_boundary_sha}^1" 2>/dev/null)"; do
               if ! parent_package="$(git show "${parent_sha}:package.json" 2>/dev/null)"; then
                 break
               fi
@@ -197,7 +198,7 @@ jobs:
                 previous_version="$parent_version"
                 break
               fi
-              target_sha="$parent_sha"
+              version_boundary_sha="$parent_sha"
             done
 
             if [ -n "$previous_version" ]; then
@@ -209,7 +210,8 @@ jobs:
           }
           NODE
             fi
-            echo "Recovered version-introduction target $target_sha for $VERSION."
+            target_sha="$CANDIDATE_SHA"
+            echo "Version $VERSION began at $version_boundary_sha; with no release tag, the successful CI candidate $target_sha is the immutable release target."
           fi
 
           if [[ ! "$target_sha" =~ ^[0-9a-f]{40}$ ]]; then

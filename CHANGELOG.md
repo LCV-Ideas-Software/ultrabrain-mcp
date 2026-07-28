@@ -21,7 +21,10 @@ inventory, preventing future dependency bumps from repeating the former
 hard-coded-version failure. All active Socket Security and StepSecurity
 repository integrations are removed. Dependabot automation uses the current
 settling controller, and Zizmor runs through the checksum-verified central
-workflow. No runtime tool API or persisted-state format changes.
+workflow. If the first commit of a new version fails a security gate before any
+tag exists, Auto-tag now promotes a later successful CI commit in the same
+version epoch instead of retrying the permanently failed SHA. No runtime tool
+API or persisted-state format changes.
 
 ## 1.2.7 - 2026-07-22
 

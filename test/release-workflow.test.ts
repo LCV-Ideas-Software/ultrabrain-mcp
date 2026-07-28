@@ -116,7 +116,10 @@ describe("release workflow invariants", () => {
     expect(autoTag).toContain("queue: max");
     expect(autoTag).toContain('cron: "47 * * * *"');
     expect(autoTag).toContain("target_sha=$target_sha");
-    expect(autoTag).toContain("version-introduction target");
+    expect(autoTag).toContain('version_boundary_sha="$CANDIDATE_SHA"');
+    expect(autoTag).toContain('target_sha="$CANDIDATE_SHA"');
+    expect(autoTag).toContain("with no release tag, the successful CI candidate");
+    expect(autoTag).not.toContain('git rev-parse "$' + '{target_sha}^1"');
   });
 
   it("keeps release refs authenticated and exact-SHA security evidence blocking", () => {

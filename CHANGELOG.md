@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+## 1.2.9 - 2026-08-03
+
+**Security patch — isolates npm publication authority and updates the verified
+toolchain.** CI, public formatting and publication now bootstrap npm 12.0.2
+from its exact SHA-512-verified registry archive on Linux and Windows. Two
+clean-room OIDC jobs run before any checkout or dependency execution and fail
+closed unless npm returns its documented `401` rejection or identity-concealing
+`404` outside `npm-production`, then authorizes the exact context inside it with
+`201`. Both probes use npm-compatible scoped-package escaping. The positive probe discards its issued
+credential without checking out code or invoking an action; only the immutable
+npmjs writer uses an npm OIDC credential to publish. Public registry and
+provenance verification run afterward without `npm-production`, and the GitHub Release
+waits for their success. Install gates use npm 12's strict reviewed-script policy.
+The lockfile also moves to Hono 4.12.34, fixed `fast-uri` 3.1.5, PostCSS 8.5.25
+and a scoped `express-rate-limit → ip-address` 10.4.0 override for
+GHSA-8j4g-w8fx-2239,
+GHSA-mwp4-54f8-5fhr, GHSA-4xrf-jv44-h6hh and GHSA-22jq-vg5j-6vgg. No tool,
+schema, configuration or persisted-state contract changes.
+
+**Validation.** Full `npm test` (73 unit tests plus smoke and clean-consumer
+coverage), typecheck, Biome and public-format checks passed. The publication
+regression proves the documented negative statuses, npm-compatible package
+escaping, and the exact positive npm OIDC environment boundary;
+Zizmor, Actionlint, ShellCheck and the clean Windows npm bootstrap also passed.
+
 ## 1.2.8 - 2026-07-28
 
 **Patch — completed historical recovery and CI dependency hygiene.** The

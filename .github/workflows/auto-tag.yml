@@ -125,7 +125,18 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
+          check-latest: true
           package-manager-cache: false
+
+      - name: Verify npmjs.org registry configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_registry="$(npm config get registry)"
+          if [ "$actual_registry" != "https://registry.npmjs.org/" ]; then
+            echo "::error::Expected npmjs.org as the configured registry, got $actual_registry." >&2
+            exit 1
+          fi
 
       - name: Resolve immutable release target
         id: target
@@ -290,8 +301,7 @@ jobs:
                   exit 1
                 fi
 
-                package_integrity_view="$(npm view "${PACKAGE_NAME}@${VERSION}" dist.integrity \
-                  --json --registry=https://registry.npmjs.org)"
+                package_integrity_view="$(npm view "${PACKAGE_NAME}@${VERSION}" dist.integrity --json)"
                 package_integrity="$(node scripts/release-policy.mjs \
                   normalize-npm-view-integrity "$package_integrity_view")"
                 completion_dir="$(mktemp -d "${RUNNER_TEMP}/release-completion.XXXXXX")"

@@ -319,6 +319,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
+          check-latest: true
           package-manager-cache: false
       - name: Setup hash-verified npm v12 toolchain
         uses: ./.github/actions/setup-npm-toolchain
@@ -457,6 +458,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
+          check-latest: true
           registry-url: "https://registry.npmjs.org"
           scope: "@lcv-ideas-software"
           package-manager-cache: false
@@ -479,9 +481,14 @@ jobs:
         run: |
           set -euo pipefail
           node --version
-          ACTUAL_NPM_VERSION="$(npm --registry=https://registry.npmjs.org --version)"
+          ACTUAL_NPM_VERSION="$(npm --version)"
           if [ "$ACTUAL_NPM_VERSION" != "$NPM_CLI_VERSION" ]; then
             echo "::error::Expected npm $NPM_CLI_VERSION, got $ACTUAL_NPM_VERSION."
+            exit 1
+          fi
+          ACTUAL_NPM_REGISTRY="$(npm config get registry)"
+          if [ "$ACTUAL_NPM_REGISTRY" != "https://registry.npmjs.org/" ]; then
+            echo "::error::Expected npmjs.org as the configured registry, got $ACTUAL_NPM_REGISTRY."
             exit 1
           fi
           echo "Verified npm $ACTUAL_NPM_VERSION for Trusted Publishing and npm v12 policy."
@@ -494,7 +501,7 @@ jobs:
         run: |
           set -euo pipefail
           view_error="$RUNNER_TEMP/npmjs-view-${GITHUB_RUN_ID}.err"
-          if package_view="$(npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version dist.integrity --json --registry=https://registry.npmjs.org 2>"$view_error")"; then
+          if package_view="$(npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version dist.integrity --json 2>"$view_error")"; then
             normalized_view="$(jq -ce 'if type == "array" and length == 1 then .[0] else . end' <<<"$package_view")"
             published_version="$(jq -er '.version' <<<"$normalized_view")"
             published_integrity="$(jq -er '.["dist.integrity"]' <<<"$normalized_view")"
@@ -525,7 +532,7 @@ jobs:
         run: |
           set -euo pipefail
           view_error="$RUNNER_TEMP/npmjs-tags-${GITHUB_RUN_ID}.err"
-          if tags_view="$(npm view "$PACKAGE_NAME" dist-tags --json --registry=https://registry.npmjs.org 2>"$view_error")"; then
+          if tags_view="$(npm view "$PACKAGE_NAME" dist-tags --json 2>"$view_error")"; then
             normalized_tags="$(jq -ce 'if type == "array" and length == 1 then .[0] else . end' <<<"$tags_view")"
             PRIOR_LATEST="$(jq -er 'if type == "object" then (.latest // "") else error("unexpected dist-tags response") end' <<<"$normalized_tags")"
           else
@@ -571,7 +578,7 @@ jobs:
             exit 1
           fi
           echo "Revalidated $PUBLISH_REF at immutable commit $VERIFIED_SHA (ancestor of main $MAIN_SHA)."
-          npm publish "./artifacts/$PACKAGE_TARBALL" --registry=https://registry.npmjs.org --access public --provenance --tag "$DIST_TAG" --ignore-scripts
+          npm publish "./artifacts/$PACKAGE_TARBALL" --access public --provenance --tag "$DIST_TAG" --ignore-scripts
     timeout-minutes: 30
 
   verify-npmjs:
@@ -590,6 +597,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
+          check-latest: true
           package-manager-cache: false
       - name: Setup hash-verified npm v12 toolchain
         uses: ./.github/actions/setup-npm-toolchain
@@ -604,7 +612,7 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in {1..12}; do
-            if package_view="$(npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version dist.integrity --json --registry=https://registry.npmjs.org 2>/dev/null)"; then
+            if package_view="$(npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version dist.integrity --json 2>/dev/null)"; then
               normalized_view="$(jq -ce 'if type == "array" and length == 1 then .[0] else . end' <<<"$package_view")"
               published_version="$(jq -er '.version' <<<"$normalized_view")"
               published_integrity="$(jq -er '.["dist.integrity"]' <<<"$normalized_view")"
@@ -631,7 +639,7 @@ jobs:
           PUBLISH_TAG: ${{ needs.publish-npmjs.outputs.publish_tag }}
         run: |
           set -euo pipefail
-          tags_view="$(npm view "$PACKAGE_NAME" dist-tags --json --registry=https://registry.npmjs.org)"
+          tags_view="$(npm view "$PACKAGE_NAME" dist-tags --json)"
           normalized_tags="$(jq -ce 'if type == "array" and length == 1 then .[0] else . end' <<<"$tags_view")"
           ACTUAL_LATEST="$(jq -er 'if type == "object" then (.latest // "") else error("unexpected dist-tags response") end' <<<"$normalized_tags")"
           node scripts/release-policy.mjs assert-registry-latest \
@@ -661,6 +669,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
+          check-latest: true
           registry-url: "https://npm.pkg.github.com"
           scope: "@lcv-ideas-software"
           package-manager-cache: false
@@ -840,6 +849,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
+          check-latest: true
           package-manager-cache: false
       - name: Verify package artifact digest
         env:

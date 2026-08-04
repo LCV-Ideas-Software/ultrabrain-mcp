@@ -10,7 +10,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const npmExecPath = process.env.npm_execpath;
 assert.ok(npmExecPath, "npm_execpath is required to run the published consumer gate");
-const registry = "https://registry.npmjs.org";
+const registry = "https://registry.npmjs.org/";
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "ultrabrain-consumer-"));
 const packDirectory = path.join(tempRoot, "pack");
 const consumerDirectory = path.join(tempRoot, "consumer");
@@ -18,6 +18,7 @@ const blockedInheritedNpmConfig = new Set([
   "npm_config_allow_git",
   "npm_config_allow_remote",
   "npm_config_allow_scripts",
+  "npm_config_registry",
 ]);
 
 function command(commandName, args, options = {}) {
@@ -60,9 +61,14 @@ try {
     mkdir(packDirectory, { recursive: true }),
     mkdir(consumerDirectory, { recursive: true }),
   ]);
+  await writeFile(path.join(consumerDirectory, ".npmrc"), `registry=${registry}\n`, "utf8");
+  assert.equal(npmCommand(["config", "get", "registry"], { cwd: root }).trim(), registry);
+  assert.equal(
+    npmCommand(["config", "get", "registry"], { cwd: consumerDirectory }).trim(),
+    registry,
+  );
   npmCommand(["pack", "--pack-destination", packDirectory, "--ignore-scripts=false"], {
     cwd: root,
-    env: cleanEnv({ npm_config_registry: registry }),
   });
   const tarballs = (await readdir(packDirectory)).filter((name) => name.endsWith(".tgz"));
   assert.equal(tarballs.length, 1);
@@ -82,8 +88,6 @@ try {
       "--no-fund",
       "--allow-git=none",
       "--allow-remote=none",
-      "--registry",
-      registry,
       tarball,
     ],
     { cwd: consumerDirectory },
@@ -108,7 +112,7 @@ try {
   assert.deepEqual(forbiddenInstalledPackages(consumerLock), []);
 
   const audit = JSON.parse(
-    npmCommand(["audit", "--omit=dev", "--json", "--registry", registry], {
+    npmCommand(["audit", "--omit=dev", "--json"], {
       cwd: consumerDirectory,
     }),
   );

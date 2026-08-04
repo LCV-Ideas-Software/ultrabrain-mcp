@@ -160,7 +160,7 @@ jobs:
           npmjs_npm_dir="$(mktemp -d "${RUNNER_TEMP}/historical-npmjs.XXXXXX")"
           npmjs_npmrc="$npmjs_npm_dir/npmrc"
           printf '%s\n' \
-            '@lcv-ideas-software:registry=https://registry.npmjs.org' \
+            'registry=https://registry.npmjs.org/' \
             >"$npmjs_npmrc"
           chmod 600 "$npmjs_npmrc"
           if [ "$(stat -c '%a' "$github_packages_npmrc")" != "600" ] || \
@@ -385,7 +385,6 @@ jobs:
               npm view "${package_name}@${package_version}" dist.integrity \
                 --json \
                 --scope="@lcv-ideas-software" \
-                --registry=https://registry.npmjs.org \
                 --userconfig="$npmjs_npmrc"
             )"
             npmjs_sri="$(node scripts/release-policy.mjs \

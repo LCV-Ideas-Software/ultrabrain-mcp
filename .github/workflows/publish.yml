@@ -210,6 +210,9 @@ jobs:
     name: Pre-publish gate (test + immutable artifact)
     needs: assert-npm-production-boundary
     runs-on: ubuntu-latest
+    environment:
+      name: github-administration
+      deployment: false
     permissions: write-all
     outputs:
       name: ${{ steps.meta.outputs.name }}
@@ -250,7 +253,7 @@ jobs:
           echo "Validated protected publish ref: $PUBLISH_REF"
       - name: Require owner-enforced immutable GitHub Releases
         env:
-          ADMIN_GH_TOKEN: ${{ secrets.LCV_AUTOMATION_TOKEN }} # zizmor: ignore[secrets-outside-env] This gate intentionally stays outside npm-production; the token only verifies immutable GitHub release policy.
+          ADMIN_GH_TOKEN: ${{ secrets.LCV_AUTOMATION_TOKEN }} # Bound to github-administration; npm OIDC remains npm-production-only.
         run: |
           set -euo pipefail
           admin_gh_token="$ADMIN_GH_TOKEN"

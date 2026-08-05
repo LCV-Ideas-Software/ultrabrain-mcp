@@ -51,10 +51,15 @@ assert.match(
   /\n {4}needs: assert-npm-production-boundary/,
   "the publication gate must wait for both npm environment-boundary proofs",
 );
+assert.match(
+  gateJob,
+  /\n {4}environment:\n {6}name: github-administration\n {6}deployment: false/,
+  "the project-code gate must resolve administration authority without creating a deployment",
+);
 assert.doesNotMatch(
   gateJob,
-  /\n {4}environment:/,
-  "the project-code gate must use the same no-environment OIDC context rejected by the boundary probe",
+  /\n {4}environment:\s*npm-production|\n {6}name:\s*npm-production/,
+  "the project-code gate must stay outside the npm Trusted Publisher environment",
 );
 
 const npmBoundaryJob = publishWorkflow.match(

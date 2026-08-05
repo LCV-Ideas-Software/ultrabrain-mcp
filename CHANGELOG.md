@@ -2,7 +2,32 @@
 
 ## Unreleased
 
-## 1.2.9 - 2026-08-03
+## 1.2.10 - 05/08/2026
+
+**Patch — aligns release administration and dependency automation.** The
+pre-publication gate now resolves `LCV_AUTOMATION_TOKEN` from the
+`github-administration` environment without creating a GitHub Deployment,
+while registry writers remain isolated in their existing production
+environments. npm commands rely on the repository's verified canonical
+`https://registry.npmjs.org/` configuration instead of repeating per-command
+registry flags, and the clean-consumer regression rejects inherited registry
+configuration before installing from its own minimal `.npmrc`.
+
+GitHub Actions now resolve the latest patch of each configured Node.js major,
+CodeQL and the shared organization workflows use their reviewed immutable
+pins, and Dependabot keeps the three-day cooldown for package ecosystems while
+allowing GitHub Actions updates immediately. CodeQL version and security
+updates remain independently grouped so an urgent security update cannot wait
+behind a routine version batch. No tool, schema, configuration or
+persisted-state contract changes.
+
+**Validation.** A clean strict-script `npm ci`, the full `npm test` chain (8
+test files / 73 unit tests plus smoke and clean-consumer coverage), typecheck,
+Biome, public formatting and dry-run packaging passed. The registry audit found
+zero vulnerabilities; all 146 installed packages with registry signatures and
+all 36 available attestations verified. Zizmor reported no findings.
+
+## 1.2.9 - 03/08/2026
 
 **Security patch — isolates npm publication authority and updates the verified
 toolchain.** CI, public formatting and publication now bootstrap npm 12.0.2
@@ -27,7 +52,7 @@ regression proves the documented negative statuses, npm-compatible package
 escaping, and the exact positive npm OIDC environment boundary;
 Zizmor, Actionlint, ShellCheck and the clean Windows npm bootstrap also passed.
 
-## 1.2.8 - 2026-07-28
+## 1.2.8 - 28/07/2026
 
 **Patch — completed historical recovery and CI dependency hygiene.** The
 provenance-bound recovery successfully published the exact 1.2.5 and 1.2.6
@@ -51,7 +76,7 @@ tag exists, Auto-tag now promotes a later successful CI commit in the same
 version epoch instead of retrying the permanently failed SHA. No runtime tool
 API or persisted-state format changes.
 
-## 1.2.7 - 2026-07-22
+## 1.2.7 - 22/07/2026
 
 **Patch — eventual-consistency-safe draft discovery.** After creating a
 recoverable GitHub Release draft, reconciliation now waits for the paginated
@@ -60,7 +85,7 @@ bounded, rejects ambiguous or different release identities, and fails closed
 before any asset upload if visibility does not converge. No runtime API or
 state format changes.
 
-## 1.2.6 - 2026-07-22
+## 1.2.6 - 22/07/2026
 
 **Patch — boolean-safe immutable release reconciliation.** Release metadata
 validation now converts required JSON booleans to strings before applying
@@ -69,7 +94,7 @@ the fail-closed shell step before asset upload. A regression test covers every
 initial, pre-publication, and final read. No runtime API or state format
 changes.
 
-## 1.2.5 - 2026-07-22
+## 1.2.5 - 22/07/2026
 
 **Patch — immutable draft-release recovery.** GitHub Release reconciliation now
 discovers both draft and published releases through the paginated Releases API,
@@ -80,7 +105,7 @@ commits into a newer concurrency group. This supersedes the incomplete 1.2.4
 GitHub Release while preserving its immutable tag, npm provenance, and package
 artifact. No runtime API or state format changes.
 
-## 1.2.4 - 2026-07-22
+## 1.2.4 - 22/07/2026
 
 **Patch — provenance-safe release recovery.** Fixes the npm tarball path that
 caused the 1.2.3 publisher to interpret `artifacts/...tgz` as a Git SSH package
@@ -93,7 +118,7 @@ evidence; 1.2.4 supersedes it so npm provenance, source commit, and workflow
 instructions all identify the same corrected release commit. No runtime API or
 state format changes.
 
-## 1.2.3 - 2026-07-22
+## 1.2.3 - 22/07/2026
 
 **Security and release hardening.** The npm package now contains a self-contained
 MCP stdio bundle plus its third-party license inventory and is verified from a
@@ -105,15 +130,15 @@ release environments, and Zizmor 1.28.0 analysis. Release jobs bind npm and
 GitHub Packages integrity to the same immutable tarball and prevent an older or
 prerelease build from replacing the latest stable release.
 
-## 1.2.2 - 2026-07-21
+## 1.2.2 - 21/07/2026
 
 **Security patch — update the transitive HTTP request parser.** Resolves GHSA-v422-hmwv-36x6 / CVE-2026-12590 by updating `body-parser` from 2.2.2 to 2.3.0 through the existing `@modelcontextprotocol/sdk` → Express dependency chain. The patched parser rejects invalid or `NaN` request-size limits instead of silently disabling body-size enforcement.
 
-## 1.2.1 - 2026-07-17
+## 1.2.1 - 17/07/2026
 
 **Patch — retro cross-review follow-up.** A peer review of the 1.2.0 diff flagged one latent inconsistency: `engine.export()` with a `limit` and `json` format returned the limited `thoughts` but the full `session.branches`, so a branch record outside the window could leak back in. The path is not reachable through the `ultrabrain_export` tool (it passes no limit) or the markdown export, but the JSON export is now consistent: branches are filtered to the retained thought ids without mutating the session, covered by a regression test.
 
-## 1.2.0 - 2026-07-17
+## 1.2.0 - 17/07/2026
 
 **Minor — audit remediation: correctness cluster, a unit-test layer, and Tier-1 reasoning-gate features.** Outcome of a multi-agent audit and cross-review. Adds a `vitest` unit suite alongside the existing smoke integration test, fixes the confirmed correctness findings (each covered by a red-then-green test), and lands additive Tier-1 features. No public tool was removed or renamed.
 
@@ -132,7 +157,7 @@ prerelease build from replacing the latest stable release.
 - State/validation: `ultrabrain_update` without a branch id targets the main chain; reserved object keys are rejected as branch ids; `ultrabrain_update` enforces the text cap and metric range; enum values are accepted case-insensitively; `ultrabrain_start` validates the seeded chain; session status reverts to active; merge numbering uses the max thought number; trimming never discards the newest record; `ultrabrain_reset all_sessions` only deletes engine-created files and single reset is transactional; session ids are length-bounded; unknown tools surface as JSON-RPC protocol errors.
 - Robustness/rendering: SIGINT/SIGTERM graceful shutdown; `ultrabrain_update` annotated `destructiveHint:true`; the progress checkpoint no longer fires on the first thought; `rewriteThought` preserves newlines; `ultrabrain_review` markdown honors `limit`.
 
-## 1.1.1 - 2026-05-15
+## 1.1.1 - 15/05/2026
 
 **Patch — 4-gate quality directive compliance.** Adds `@biomejs/biome` ^2.4.15 + `biome.json` aligned with prettier conventions (lineWidth 100, indent space 2, double quotes, trailing commas all, semicolons always). New `npm run biome` + `npm run biome:write` scripts scoped to `src/` and `scripts/`. CI workflow runs `npm run biome` between `npm ci` and `npm test`.
 
@@ -147,7 +172,7 @@ prerelease build from replacing the latest stable release.
 - `src/engine.ts` + `src/normalize.ts` + minor source files: cosmetic formatting + unused-import cleanup from `biome --write` and `biome --write --unsafe` (no semantic changes).
 - `SERVER_VERSION` in `src/index.ts` synced to `1.1.1`.
 
-## 1.1.0 - 2026-05-12
+## 1.1.0 - 12/05/2026
 
 - Enforced `depth_level` and `max_depth` as positive integers, and rejected reasoning steps where depth exceeds the declared maximum.
 - Added active reference validation for `revises_thought`, `branch_from_thought`, and `parent_thought` so new steps cannot point to shifted or missing thoughts.
@@ -157,7 +182,7 @@ prerelease build from replacing the latest stable release.
 - Expanded the MCP smoke test to cover persistence reloads, update payloads, depth validation, missing-reference errors, and markdown merge output.
 - Re-audited workflows against the LCV workspace baseline and StepSecurity Harden-Runner standard.
 
-## 1.0.0 - 2026-05-12
+## 1.0.0 - 12/05/2026
 
 - First publication target for `@lcv-ideas-software/ultrabrain-mcp` as public release `v01.00.00`.
 - Added LCV-branded MCP tool surface with `ultrabrain_*` tool names only.

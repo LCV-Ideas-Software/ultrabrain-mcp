@@ -608,6 +608,30 @@ export class UltraBrainEngine {
     return { templates: TEMPLATES };
   }
 
+  runtimeInfo(): {
+    persistence_enabled: boolean;
+    persistence_dir: string | null;
+    active_sessions: number;
+    limits: {
+      max_session_thoughts: number;
+      max_branch_thoughts: number;
+      max_session_id_length: number;
+    };
+    reserved_branch_keys: string[];
+  } {
+    return {
+      persistence_enabled: this.persistenceDir !== undefined,
+      persistence_dir: this.persistenceDir ?? null,
+      active_sessions: this.sessions.size,
+      limits: {
+        max_session_thoughts: MAX_SESSION_THOUGHTS,
+        max_branch_thoughts: MAX_BRANCH_THOUGHTS,
+        max_session_id_length: MAX_SESSION_ID_LENGTH,
+      },
+      reserved_branch_keys: Array.from(RESERVED_KEYS),
+    };
+  }
+
   listSessions(): Record<string, unknown> {
     return {
       sessions: Array.from(this.sessions.values()).map((session) => ({

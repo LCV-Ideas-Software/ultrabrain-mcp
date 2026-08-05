@@ -56,6 +56,7 @@ try {
     "ultrabrain_metrics",
     "ultrabrain_templates",
     "ultrabrain_reset",
+    "ultrabrain_server_info",
   ]) {
     assert.ok(names.includes(expected), `missing tool ${expected}`);
   }
@@ -67,6 +68,36 @@ try {
   // Version parity: the server must report the same version as package.json.
   const serverInfo = client.getServerVersion();
   assert.equal(serverInfo?.version, pkg.version, "server version must match package.json");
+
+  // ultrabrain_server_info: read-only annotations, version parity, and a tool
+  // listing that matches tools/list exactly.
+  const serverInfoTool = listed.tools.find((tool) => tool.name === "ultrabrain_server_info");
+  assert.equal(serverInfoTool?.annotations?.readOnlyHint, true, "server_info must be read-only");
+  assert.equal(serverInfoTool?.annotations?.idempotentHint, true, "server_info must be idempotent");
+  const infoResult = await client.callTool({
+    name: "ultrabrain_server_info",
+    arguments: { response_format: "json" },
+  });
+  const infoPayload = JSON.parse(infoResult.content?.[0]?.text);
+  assert.equal(infoPayload.name, "ultrabrain-mcp");
+  assert.equal(infoPayload.version, pkg.version, "server_info version must match package.json");
+  assert.equal(infoPayload.homepage, pkg.homepage, "server_info homepage must match package.json");
+  assert.equal(infoPayload.transport, "stdio");
+  assert.deepEqual(infoPayload.tools, names, "server_info tools must match tools/list");
+  assert.ok(
+    String(infoPayload.data_dir).includes("ultrabrain-smoke-"),
+    "server_info data_dir must reflect the configured state dir",
+  );
+  assert.equal(
+    infoPayload.config_load?.source,
+    "ULTRABRAIN_STATE_DIR",
+    "server_info must report the consumed persistence env var",
+  );
+  assert.equal(
+    infoResult.structuredContent?.version,
+    pkg.version,
+    "server_info returns structuredContent",
+  );
 
   // Unknown tools must surface as a JSON-RPC protocol error, not an in-band result.
   await assert.rejects(

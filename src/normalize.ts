@@ -12,7 +12,7 @@ import type {
   ValidateInput,
 } from "./types.js";
 
-const MAX_TEXT_LENGTH = 20000;
+export const MAX_TEXT_LENGTH = 20000;
 export const DEFAULT_SESSION_ID = "default";
 
 const responseFormatSchema = z.enum(["json", "markdown", "text"]);

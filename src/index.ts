@@ -13,6 +13,7 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { formatResult, TEMPLATES, toJsonPayload, UltraBrainEngine } from "./engine.js";
+import { SERVER_NAME, SERVER_VERSION } from "./meta.js";
 import {
   normalizeAnalyzeInput,
   normalizeMergeInput,
@@ -27,13 +28,13 @@ import {
   readSessionId,
   readString,
 } from "./normalize.js";
+import { buildServerInfo, resolvePersistence } from "./server-info.js";
 import type { ResponseFormat, ToolErrorPayload } from "./types.js";
 
-const SERVER_NAME = "ultrabrain-mcp";
-const SERVER_VERSION = "1.2.10";
+const { source: persistenceEnv, dir: persistenceDir } = resolvePersistence(process.env);
 
 const engine = new UltraBrainEngine({
-  persistence_dir: process.env.ULTRABRAIN_STATE_DIR ?? process.env.ULTRABRAIN_PERSIST_DIR,
+  persistence_dir: persistenceDir,
 });
 
 const responseFormatProperty = {
@@ -517,6 +518,24 @@ const tools = [
       openWorldHint: false,
     },
   },
+  {
+    name: "ultrabrain_server_info",
+    title: "Ultrabrain Server Info",
+    description:
+      "Return runtime information for the local Ultrabrain MCP server, including version, release date, capabilities, tool surface, data directory, and active limits.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        response_format: responseFormatProperty,
+      },
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
 ];
 
 const prompts = [
@@ -690,6 +709,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (name === "ultrabrain_reset") {
       return jsonResponse(
         engine.reset(normalizeSessionId(args), readBoolean(args, "all_sessions") ?? false),
+      );
+    }
+    if (name === "ultrabrain_server_info") {
+      return objectResponse(
+        buildServerInfo({
+          engine,
+          persistenceEnv,
+          tools: tools.map((tool) => tool.name),
+          prompts: prompts.map((prompt) => prompt.name),
+          resources: resources.map((resource) => resource.uri),
+          resourceTemplates: resourceTemplates.map((template) => template.uriTemplate),
+        }),
+        readResponseFormat(args),
       );
     }
     throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);

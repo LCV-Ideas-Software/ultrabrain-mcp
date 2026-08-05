@@ -1,6 +1,19 @@
 # Changelog
 
+<!-- Release headings must use ISO dates (## x.y.z - YYYY-MM-DD); test/meta.test.ts enforces this on the head entry. -->
+
 ## Unreleased
+
+## 1.2.11 - 2026-08-05
+
+**Patch — adds the `ultrabrain_server_info` tool.** A read-only, idempotent runtime introspection tool mirroring the cross-review `server_info` shape, adapted to Ultrabrain's specifics: server identity (name, publisher, version, release date, homepage, sponsors URL, license), transport and execution flags, capability flags, the full tool/prompt/resource/resource-template surface, built-in template ids, the resolved persistence `data_dir` with the consumed env var (`config_load` + `config_precedence`), active session count, engine limits (session/branch/id/text caps) and reserved branch keys, Node runtime info, and the local-first security policy.
+
+### Added
+
+- `ultrabrain_server_info` tool returning the payload above as `structuredContent` plus text, honoring `response_format`.
+- `src/meta.ts` server-identity constants with a vitest lockstep guard against `package.json` and the CHANGELOG head (version-drift class permanently fenced).
+- `UltraBrainEngine.runtimeInfo()` exposing persistence state, active session count, limits, and reserved branch keys.
+- Smoke assertions: tool listed with read-only/idempotent annotations, version parity with `package.json`, `tools` self-consistency against `tools/list`, `data_dir`/`config_load` reflecting the configured state dir, `structuredContent` present.
 
 ## 1.2.10 - 05/08/2026
 

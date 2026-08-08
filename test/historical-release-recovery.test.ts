@@ -1,7 +1,4 @@
-import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -9,7 +6,6 @@ import {
   expectedConfirmation,
   HISTORICAL_RELEASES,
   LATEST_RELEASE,
-  uploadReleaseAsset,
   validateArtifactSet,
   validateDispatchContext,
   validateImmutablePolicy,
@@ -27,11 +23,24 @@ const workflow = readFileSync(
   new URL("./fixtures/recover-historical-releases.yml", import.meta.url),
   "utf8",
 );
+const helperSource = readFileSync(
+  new URL("../scripts/historical-release-recovery.mjs", import.meta.url),
+  "utf8",
+);
 const liveLatestAttestationFixture = JSON.parse(
   readFileSync(new URL("./fixtures/github-release-verify-v01.02.07.json", import.meta.url), "utf8"),
 );
 
 const owner = { login: "github-actions[bot]", id: 41898282 };
+
+describe("retired recovery helper", () => {
+  it("remains offline-only", () => {
+    expect(helperSource).not.toContain("uploadReleaseAsset");
+    expect(helperSource).not.toContain('command === "upload-asset"');
+    expect(helperSource).not.toContain("uploads.github.com");
+    expect(helperSource).not.toContain("fetchImpl");
+  });
+});
 
 function record(tag = "v01.02.05") {
   return HISTORICAL_RELEASES[tag];
@@ -448,63 +457,6 @@ describe("exact release-id reconciliation", () => {
         String(asset.id),
       ),
     ).toThrow(/name/i);
-  });
-
-  it("uploads only exact bytes to the exact release-id endpoint without redirecting", async () => {
-    const bytes = Buffer.from("immutable recovery fixture");
-    const sha256 = createHash("sha256").update(bytes).digest("hex");
-    const sri = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
-    const item = {
-      recoverable: true,
-      tag: "v99.99.99",
-      release: { id: 42 },
-      package: { tarball: "fixture.tgz", size: bytes.length, sha256, sri },
-    };
-    const directory = mkdtempSync(join(tmpdir(), "ultra-release-upload-test-"));
-    const assetPath = join(directory, "fixture.tgz");
-    writeFileSync(assetPath, bytes);
-    let requestUrl = "";
-    let requestOptions:
-      | {
-          body?: Buffer;
-          headers?: Record<string, string>;
-          method?: string;
-          redirect?: string;
-        }
-      | undefined;
-    try {
-      const result = await uploadReleaseAsset({
-        item,
-        assetPath,
-        token: "test-only-token",
-        fetchImpl: async (url, options) => {
-          requestUrl = String(url);
-          requestOptions = options;
-          return {
-            status: 201,
-            text: async () =>
-              JSON.stringify({
-                id: 77,
-                name: "fixture.tgz",
-                state: "uploaded",
-                size: bytes.length,
-                digest: `sha256:${sha256}`,
-                uploader: owner,
-              }),
-          };
-        },
-      });
-      expect(result.id).toBe(77);
-      expect(requestUrl).toBe(
-        "https://uploads.github.com/repos/LCV-Ideas-Software/ultrabrain-mcp/releases/42/assets?name=fixture.tgz",
-      );
-      expect(requestOptions).toMatchObject({ method: "POST", redirect: "error" });
-      expect(requestOptions?.headers?.Authorization).toBe("Bearer test-only-token");
-      expect(Buffer.compare(requestOptions?.body ?? Buffer.alloc(0), bytes)).toBe(0);
-    } finally {
-      unlinkSync(assetPath);
-      rmdirSync(directory);
-    }
   });
 });
 

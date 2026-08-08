@@ -1,9 +1,7 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-
-import { assertCanonicalSha512Sri, canonicalSha512Sri } from "./release-policy.mjs";
 
 const REPOSITORY = "LCV-Ideas-Software/ultrabrain-mcp";
 const REPOSITORY_ID = "1236279848";
@@ -701,54 +699,6 @@ export function validateReleaseSnapshot(release, item, phase, expectedAssetId = 
   return validateAsset(release.assets[0], item, expectedAssetId);
 }
 
-export async function uploadReleaseAsset({ item, assetPath, token, fetchImpl = fetch }) {
-  assertRecoverableRecord(item);
-  if (typeof token !== "string" || token.length < 1) fail("Recovery GitHub token is missing");
-  if (basename(assetPath) !== item.package.tarball) {
-    fail(`Recovery asset path must end in ${item.package.tarball}`);
-  }
-  const bytes = readFileSync(assetPath);
-  exact(bytes.length, item.package.size, "Recovery asset byte size");
-  secureDigestEqual(
-    createHash("sha256").update(bytes).digest("hex"),
-    item.package.sha256,
-    "Recovery asset SHA-256",
-  );
-  assertCanonicalSha512Sri(item.package.sri, "Recovery manifest SRI");
-  secureDigestEqual(canonicalSha512Sri(bytes), item.package.sri, "Recovery asset SRI");
-
-  const assetName = encodeURIComponent(item.package.tarball);
-  const url =
-    `https://uploads.github.com/repos/${REPOSITORY}/releases/${item.release.id}/assets` +
-    `?name=${assetName}`;
-  const response = await fetchImpl(url, {
-    method: "POST",
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/octet-stream",
-      "X-GitHub-Api-Version": "2026-03-10",
-    },
-    // This is the intended release-asset upload. `bytes` has already been
-    // checked against the frozen manifest's size, SHA-256 and SHA-512 SRI,
-    // and `url` is constructed from the fixed repository and release ID.
-    body: bytes,
-    redirect: "error",
-  });
-  const responseText = await response.text();
-  if (response.status !== 201) {
-    fail(`Exact release asset upload failed with HTTP ${response.status}`);
-  }
-  let asset;
-  try {
-    asset = JSON.parse(responseText);
-  } catch {
-    fail("Exact release asset upload returned invalid JSON");
-  }
-  validateAsset(asset, item);
-  return asset;
-}
-
 function readJson(path, label) {
   try {
     return JSON.parse(readFileSync(path, "utf8"));
@@ -833,13 +783,6 @@ async function runCli(args) {
   }
   if (command === "validate-attestation") {
     validateReleaseAttestation(readJson(args[2], "Historical release attestation"), item);
-    return;
-  }
-  if (command === "upload-asset") {
-    const token = process.env.RECOVERY_GITHUB_TOKEN || "";
-    delete process.env.RECOVERY_GITHUB_TOKEN;
-    const asset = await uploadReleaseAsset({ item, assetPath: args[2], token });
-    console.log(JSON.stringify(asset));
     return;
   }
   fail(`Unknown historical release recovery command: ${command}`);

@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### Security
+
+- Removed the retired historical-release helper's obsolete file-to-network
+  asset-upload path. Its immutable audit fixtures and offline validators remain,
+  and CodeQL continues to analyze the helper without suppression.
+
 ## 1.2.11 - 2026-08-05
 
 **Patch — adds the `ultrabrain_server_info` tool.** A read-only, idempotent runtime introspection tool mirroring the cross-review `server_info` shape, adapted to Ultrabrain's specifics: server identity (name, publisher, version, release date, homepage, sponsors URL, license), transport and execution flags, capability flags, the full tool/prompt/resource/resource-template surface, built-in template ids, the resolved persistence `data_dir` with the consumed env var (`config_load` + `config_precedence`), active session count, engine limits (session/branch/id/text caps) and reserved branch keys, Node runtime info, and the local-first security policy.

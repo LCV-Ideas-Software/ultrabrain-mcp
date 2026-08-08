@@ -10,16 +10,25 @@ ambiguous `v01.02.04` drafts (`358159754` and `358213427`) remain deliberately
 untouched.
 
 The active one-time workflow was retired in `v01.02.08` after these live
-identities were revalidated. Its unshipped helper remains under `scripts/` only
-for its executable contract tests. Under the repository-wide zero-tolerance
-policy, the helper is intentionally included in CodeQL extraction and must
-produce no SARIF findings on every pull request, push, and merge group. Any
-future finding must be corrected, or the retired helper removed after preserving
-the required audit evidence; it must not be hidden with `paths-ignore`. The exact
-workflow fixture, this runbook, and the
-`github-release-verify-v01.02.07.json` attestation fixture remain as audit
-evidence. The procedures below are archived and are no longer dispatchable from
-the repository.
+identities were revalidated. A post-merge CodeQL analysis then identified the
+retired helper's obsolete file-to-network asset-upload path as
+`js/file-access-to-http`. That transport and its `upload-asset` CLI command were
+removed instead of suppressed or excluded. The unshipped helper remains under
+`scripts/` only for offline validation and executable contract tests, with a
+regression test that prevents the outbound transport from returning.
+
+The pre-removal source remains reproducible at signed commit
+`0f78253d32faa775dee3eaf5d16c745c6482b035`; its SHA-256 is
+`824771f1e1216e85f51465fa88cfc14e34644352e81f5ea6572ec4e805eeb8ed`.
+The exact workflow fixture (SHA-256
+`2b0f0534c1c5402c061983937a3d5a60fae703f24fbea992c73898fbac308499`),
+this runbook, and the `github-release-verify-v01.02.07.json` attestation fixture
+(SHA-256
+`a93d026c1ae79acc4a5ddb7102595e79da3cb1bdcc3877b0f0a25203f1ae7d29`)
+remain as audit evidence. The procedures below are archived and are no longer
+dispatchable from the repository. The helper stays included in CodeQL
+extraction and must produce zero security or quality findings; it must not be
+hidden with `paths-ignore` or an alert dismissal.
 
 ## Archived runbook
 
@@ -224,6 +233,7 @@ files are removed.
 
 ## Primary references
 
+- [CodeQL `js/file-access-to-http` query help](https://codeql.github.com/codeql-query-help/javascript/js-file-access-to-http/)
 - [GitHub Actions workflow dispatch REST API](https://docs.github.com/en/rest/actions/workflows)
 - [GitHub Actions workflow syntax and `workflow_dispatch`](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)
 - [GitHub Actions contexts](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts)

@@ -12,11 +12,10 @@ untouched.
 The active one-time workflow was retired in `v01.02.08` after these live
 identities were revalidated. A post-merge CodeQL analysis then identified the
 retired helper's obsolete file-to-network asset-upload path as
-`js/file-access-to-http`. That transport and its `upload-asset` CLI command were
-removed instead of suppressed or excluded. The unshipped helper remains under
-`scripts/` only for offline validation and executable contract tests, with a
-frozen source hash and a syntax-aware, closed capability audit that prevent
-outbound transports, dynamic loaders, or unaudited modules from returning.
+`js/file-access-to-http`. The executable helper and its self-contained contract
+tests were removed after confirming that no live workflow or other production
+code consumed them. This eliminates the transport surface rather than trying
+to suppress the finding or maintain a second, partial JavaScript analyzer.
 
 The pre-removal source remains reproducible at signed commit
 `0f78253d32faa775dee3eaf5d16c745c6482b035`; its SHA-256 is
@@ -27,9 +26,10 @@ this runbook, and the `github-release-verify-v01.02.07.json` attestation fixture
 (SHA-256
 `a93d026c1ae79acc4a5ddb7102595e79da3cb1bdcc3877b0f0a25203f1ae7d29`)
 remain as audit evidence. The procedures below are archived and are no longer
-dispatchable from the repository. The helper stays included in CodeQL
-extraction and must produce zero security or quality findings; it must not be
-hidden with `paths-ignore` or an alert dismissal.
+dispatchable from the repository. A small evidence test pins both retained
+fixture hashes and proves that neither the helper nor the live workflow has
+returned. No CodeQL path exclusion, alert dismissal, or source suppression is
+used.
 
 ## Archived runbook
 
@@ -39,9 +39,11 @@ packages, move or recreate tags, delete releases or assets, or change an npm
 dist-tag. The already published, immutable `v01.02.07` release remained the
 latest release throughout the operation.
 
-The recovery workflow is intentionally fail-closed. All live identities and
-digests are frozen in `scripts/historical-release-recovery.mjs`; any drift
-requires a separately reviewed change instead of a runtime guess.
+The recovery workflow was intentionally fail-closed. At execution time, all
+live identities and digests were frozen in
+`scripts/historical-release-recovery.mjs`. That exact source is preserved at
+the signed commit and SHA-256 recorded above; it is no longer executable from
+the current tree.
 
 ## Recovery inventory
 
@@ -172,26 +174,27 @@ allows up to 100 pending runs in such a group. The installed `actionlint`
 compatibility limitation, not a GitHub workflow syntax error. Zizmor remains an
 independent workflow security gate.
 
-## Required dedicated environment
+## Archived dedicated environment requirement
 
-The recovery job targets `historical-release-recovery`. Do not reuse or loosen
-`github-release-production`: its selected deployment rule is a `v*` **tag**,
-while this workflow must be dispatched from `refs/heads/main`, so GitHub would
-correctly refuse that job.
+The recovery job targeted `historical-release-recovery` rather than reusing or
+loosening `github-release-production`: its selected deployment rule was a `v*`
+**tag**, while the recovery workflow was dispatched from `refs/heads/main`, so
+GitHub would correctly refuse that job.
 
-The dedicated environment must be provisioned before the first dispatch.
+The dedicated environment had to be provisioned before the first dispatch.
 GitHub documents that referencing a missing environment can create it without
-the intended rules. As a second fail-closed layer, the job queries the live
-environment before any mutation and requires all of the following:
+the intended rules. As a second fail-closed layer, the job queried the live
+environment before any mutation and required all of the following:
 
 - environment name `historical-release-recovery`;
 - custom branch policies enabled and protected-branches mode disabled;
 - exactly one environment protection rule, of type `branch_policy`;
 - exactly one deployment policy named `main`, of type `branch`.
 
-An administrator must perform these two explicit REST mutations outside the
-recovery workflow and retain the returned environment and policy IDs in the
-change evidence. They are prerequisites, not actions performed by this PR:
+An administrator performed these two explicit REST mutations outside the
+recovery workflow and retained the returned environment and policy IDs in the
+change evidence. They were prerequisites, not actions performed by the
+workflow:
 
 ```text
 PUT /repos/LCV-Ideas-Software/ultrabrain-mcp/environments/historical-release-recovery
@@ -201,36 +204,37 @@ POST /repos/LCV-Ideas-Software/ultrabrain-mcp/environments/historical-release-re
 {"name":"main","type":"branch"}
 ```
 
-After provisioning, GET both resources and run the same validator used by the
-workflow before allowing any dispatch. A missing environment, an implicitly
-created unrestricted environment, a `v*` tag rule, an additional rule, or a
-non-`main` branch rule all fail before an asset upload.
+After provisioning, the operator read both resources and ran the same validator
+used by the workflow before allowing a dispatch. A missing environment, an
+implicitly created unrestricted environment, a `v*` tag rule, an additional
+rule, or a non-`main` branch rule all failed before an asset upload.
 
-## Operator procedure
+## Archived operator procedure
 
-Do not dispatch the workflow from this pull request. `workflow_dispatch`
-requires the workflow to exist on the default branch, and recovery must use
-the exact trusted `main` workflow SHA.
+This section records the procedure used by the retired workflow; it is not an
+instruction to recreate or dispatch it. While the workflow was active,
+`workflow_dispatch` required it to exist on the default branch and recovery
+used the exact trusted `main` workflow SHA.
 
-After this change is reviewed and merged, recover one version at a time, in
-historical order. Select `main` explicitly and enter the corresponding
-confirmation without modification:
+The two authorized versions were recovered one at a time, in historical order,
+with `main` selected explicitly and the corresponding confirmation entered
+without modification:
 
 ```text
 RECOVER v01.02.05 RELEASE 358220705 FROM RUN 29945360970 ARTIFACT 8539912901
 RECOVER v01.02.06 RELEASE 358239662 FROM RUN 29947725605 ARTIFACT 8540849394
 ```
 
-Do not dispatch `v01.02.04`; it is present in the input choices only so an
-attempt produces an explicit, auditable failure rather than silently omitting
-the known incident.
+`v01.02.04` was not dispatched. It remained in the archived input choices only
+so an attempt would produce an explicit, auditable failure rather than silently
+omitting the known incident.
 
-An interruption or a detected `main` advance after an asset upload but before
-publication leaves the draft and exact asset intact. A retry revalidates and
-reuses that asset. If the release was already published and made immutable, a
-retry performs only the final verification path. No cleanup action is
-automated for releases, tags, or assets; only temporary local authentication
-files are removed.
+The retired design left the draft and exact asset intact after an interruption
+or detected `main` advance between upload and publication. A retry revalidated
+and reused that asset; if the release was already published and immutable, it
+performed only the final verification path. It never automated cleanup of
+releases, tags, or assets; only temporary local authentication files were
+removed.
 
 ## Primary references
 

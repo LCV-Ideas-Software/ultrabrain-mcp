@@ -6,11 +6,12 @@
 
 ### Security
 
-- Removed the retired historical-release helper's obsolete file-to-network
-  asset-upload path. Its immutable audit fixtures and offline validators remain,
-  and CodeQL continues to analyze the helper without suppression. A frozen
-  source hash plus a syntax-aware, closed capability audit reject alternate
-  network clients and dynamic loaders.
+- Removed the retired historical-release helper and its circular contract tests
+  after confirming that no live workflow or production code consumed them. The
+  exact pre-removal source remains preserved at its signed commit and SHA-256;
+  retained workflow and attestation fixtures are hash-pinned by a small test
+  that also proves the executable entry points remain absent. No CodeQL
+  exclusion, suppression, or alert dismissal is used.
 
 ## 1.2.11 - 2026-08-05
 

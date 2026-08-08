@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { type Node, parse } from "acorn";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -33,12 +35,189 @@ const liveLatestAttestationFixture = JSON.parse(
 
 const owner = { login: "github-actions[bot]", id: 41898282 };
 
+const RETIRED_HELPER_SHA256 = "722f3c140c212f187b20b1e9e6713ba256999d2d865864e62d0d08171e13d158";
+const OFFLINE_HELPER_MODULES = new Set(["node:crypto", "node:fs", "node:path", "node:url"]);
+const NETWORK_GLOBALS = new Set(["fetch", "XMLHttpRequest", "WebSocket", "EventSource"]);
+const GLOBAL_CAPABILITY_ROOTS = new Set([
+  "globalThis",
+  "window",
+  "self",
+  "navigator",
+  "Deno",
+  "Bun",
+]);
+const DYNAMIC_LOADERS = new Set(["require", "eval", "Function"]);
+const SAFE_PROCESS_PROPERTIES = new Set(["argv", "exitCode"]);
+const REQUEST_CLIENT_METHODS = new Set([
+  "request",
+  "connect",
+  "createConnection",
+  "get",
+  "post",
+  "put",
+  "patch",
+  "delete",
+  "head",
+  "options",
+  "send",
+  "sendBeacon",
+  "open",
+  "write",
+  "end",
+  "pipe",
+  "dispatch",
+  "call",
+  "apply",
+  "bind",
+]);
+
+function isAstNode(value: unknown): value is Node {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "type" in value &&
+      typeof (value as { type?: unknown }).type === "string",
+  );
+}
+
+function astField(node: Node, field: string) {
+  return (node as unknown as Record<string, unknown>)[field];
+}
+
+function identifierName(value: unknown) {
+  if (!isAstNode(value) || value.type !== "Identifier") return undefined;
+  const name = astField(value, "name");
+  return typeof name === "string" ? name : undefined;
+}
+
+function literalString(value: unknown) {
+  if (!isAstNode(value) || value.type !== "Literal") return undefined;
+  const literal = astField(value, "value");
+  return typeof literal === "string" ? literal : undefined;
+}
+
+function memberPropertyName(node: Node) {
+  if (node.type !== "MemberExpression") return undefined;
+  return astField(node, "computed")
+    ? literalString(astField(node, "property"))
+    : identifierName(astField(node, "property"));
+}
+
+function walkAst(node: Node, visitor: (node: Node, parent?: Node) => void, parent?: Node) {
+  visitor(node, parent);
+  for (const value of Object.values(node as unknown as Record<string, unknown>)) {
+    if (Array.isArray(value)) {
+      for (const child of value) {
+        if (isAstNode(child)) walkAst(child, visitor, node);
+      }
+    } else if (isAstNode(value)) {
+      walkAst(value, visitor, node);
+    }
+  }
+}
+
+function offlineCapabilityViolations(source: string) {
+  const sourceFile = parse(source, {
+    allowHashBang: true,
+    ecmaVersion: "latest",
+    locations: true,
+    sourceType: "module",
+  });
+  const violations = new Set<string>();
+  const allowedDirectCalls = new Set(["Error", "String"]);
+
+  const record = (kind: string, node: Node) =>
+    violations.add(`${kind}@${node.loc?.start.line ?? 0}`);
+
+  walkAst(sourceFile, (node) => {
+    if (node.type === "FunctionDeclaration") {
+      const name = identifierName(astField(node, "id"));
+      if (name) allowedDirectCalls.add(name);
+    }
+    if (node.type === "ImportDeclaration") {
+      const moduleName = literalString(astField(node, "source"));
+      if (moduleName && OFFLINE_HELPER_MODULES.has(moduleName)) {
+        const specifiers = astField(node, "specifiers");
+        if (Array.isArray(specifiers)) {
+          for (const specifier of specifiers) {
+            if (!isAstNode(specifier)) continue;
+            const name = identifierName(astField(specifier, "local"));
+            if (name) allowedDirectCalls.add(name);
+          }
+        }
+      }
+    }
+  });
+
+  walkAst(sourceFile, (node, parent) => {
+    if (
+      (node.type === "ImportDeclaration" ||
+        node.type === "ExportNamedDeclaration" ||
+        node.type === "ExportAllDeclaration") &&
+      literalString(astField(node, "source")) &&
+      !OFFLINE_HELPER_MODULES.has(literalString(astField(node, "source")) ?? "")
+    ) {
+      record(`module:${literalString(astField(node, "source"))}`, node);
+    }
+
+    if (node.type === "ImportExpression") record("dynamic-import", node);
+
+    if (node.type === "Identifier") {
+      const name = identifierName(node) ?? "";
+      if (NETWORK_GLOBALS.has(name)) record(`network-global:${name}`, node);
+      if (GLOBAL_CAPABILITY_ROOTS.has(name)) record(`global-capability:${name}`, node);
+      if (DYNAMIC_LOADERS.has(name)) record(`dynamic-loader:${name}`, node);
+
+      if (name === "process") {
+        const allowedProcessAccess =
+          parent?.type === "MemberExpression" &&
+          astField(parent, "object") === node &&
+          !astField(parent, "computed") &&
+          SAFE_PROCESS_PROPERTIES.has(memberPropertyName(parent) ?? "");
+        if (!allowedProcessAccess) record("process-capability", node);
+      }
+    }
+
+    if (node.type === "MemberExpression") {
+      const method = memberPropertyName(node);
+      if (method && REQUEST_CLIENT_METHODS.has(method)) {
+        record(`request-client:${method}`, node);
+      }
+    }
+
+    if (
+      (node.type === "CallExpression" || node.type === "NewExpression") &&
+      identifierName(astField(node, "callee")) &&
+      !allowedDirectCalls.has(identifierName(astField(node, "callee")) ?? "")
+    ) {
+      record(`unapproved-direct-call:${identifierName(astField(node, "callee"))}`, node);
+    }
+  });
+  return [...violations].sort();
+}
+
 describe("retired recovery helper", () => {
-  it("remains offline-only", () => {
-    expect(helperSource).not.toContain("uploadReleaseAsset");
-    expect(helperSource).not.toContain('command === "upload-asset"');
-    expect(helperSource).not.toContain("uploads.github.com");
-    expect(helperSource).not.toContain("fetchImpl");
+  it("is frozen at its reviewed offline-only source hash", () => {
+    expect(createHash("sha256").update(helperSource).digest("hex")).toBe(RETIRED_HELPER_SHA256);
+  });
+
+  it("uses only the audited offline capability set", () => {
+    expect(offlineCapabilityViolations(helperSource)).toEqual([]);
+  });
+
+  it.each([
+    ['fetch("https://api.github.com", { body: readFileSync(path) });'],
+    ['globalThis["fetch"]("https://api.github.com", { body: bytes });'],
+    ['import { request } from "node:https"; request({ method: "POST" });'],
+    ['const { request } = await import("node:http"); request({ method: "POST" });'],
+    ['const https = require("node:https"); https.request({ method: "POST" });'],
+    ['const https = process.getBuiltinModule("node:https"); https.request({});'],
+    ['import axios from "axios"; axios.post("https://api.github.com", bytes);'],
+    ['function upload(client, bytes) { client("https://api.github.com", { body: bytes }); }'],
+    ['function upload(client, bytes) { client.request("https://api.github.com", bytes); }'],
+    ['new WebSocket("wss://api.github.com");'],
+  ])("rejects alternate network capability: %s", (candidate) => {
+    expect(offlineCapabilityViolations(candidate)).not.toEqual([]);
   });
 });
 

@@ -15,7 +15,8 @@ retired helper's obsolete file-to-network asset-upload path as
 `js/file-access-to-http`. That transport and its `upload-asset` CLI command were
 removed instead of suppressed or excluded. The unshipped helper remains under
 `scripts/` only for offline validation and executable contract tests, with a
-regression test that prevents the outbound transport from returning.
+frozen source hash and a syntax-aware, closed capability audit that prevent
+outbound transports, dynamic loaders, or unaudited modules from returning.
 
 The pre-removal source remains reproducible at signed commit
 `0f78253d32faa775dee3eaf5d16c745c6482b035`; its SHA-256 is

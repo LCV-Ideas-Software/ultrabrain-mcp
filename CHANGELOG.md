@@ -8,7 +8,9 @@
 
 - Removed the retired historical-release helper's obsolete file-to-network
   asset-upload path. Its immutable audit fixtures and offline validators remain,
-  and CodeQL continues to analyze the helper without suppression.
+  and CodeQL continues to analyze the helper without suppression. A frozen
+  source hash plus a syntax-aware, closed capability audit reject alternate
+  network clients and dynamic loaders.
 
 ## 1.2.11 - 2026-08-05
 

@@ -40,6 +40,7 @@ const OFFLINE_HELPER_MODULES = new Set(["node:crypto", "node:fs", "node:path", "
 const NETWORK_GLOBALS = new Set(["fetch", "XMLHttpRequest", "WebSocket", "EventSource"]);
 const GLOBAL_CAPABILITY_ROOTS = new Set([
   "globalThis",
+  "global",
   "window",
   "self",
   "navigator",
@@ -192,6 +193,15 @@ function offlineCapabilityViolations(source: string) {
     ) {
       record(`unapproved-direct-call:${identifierName(astField(node, "callee"))}`, node);
     }
+
+    if (
+      (node.type === "CallExpression" || node.type === "NewExpression") &&
+      isAstNode(astField(node, "callee")) &&
+      (astField(node, "callee") as Node).type === "MemberExpression" &&
+      astField(astField(node, "callee") as Node, "computed")
+    ) {
+      record("computed-capability-call", node);
+    }
   });
   return [...violations].sort();
 }
@@ -208,6 +218,7 @@ describe("retired recovery helper", () => {
   it.each([
     ['fetch("https://api.github.com", { body: readFileSync(path) });'],
     ['globalThis["fetch"]("https://api.github.com", { body: bytes });'],
+    ['global["fetch"]("https://api.github.com", { body: bytes });'],
     ['import { request } from "node:https"; request({ method: "POST" });'],
     ['const { request } = await import("node:http"); request({ method: "POST" });'],
     ['const https = require("node:https"); https.request({ method: "POST" });'],
@@ -215,6 +226,7 @@ describe("retired recovery helper", () => {
     ['import axios from "axios"; axios.post("https://api.github.com", bytes);'],
     ['function upload(client, bytes) { client("https://api.github.com", { body: bytes }); }'],
     ['function upload(client, bytes) { client.request("https://api.github.com", bytes); }'],
+    ['function upload(client, bytes) { client["req" + "uest"]("https://api.github.com", bytes); }'],
     ['new WebSocket("wss://api.github.com");'],
   ])("rejects alternate network capability: %s", (candidate) => {
     expect(offlineCapabilityViolations(candidate)).not.toEqual([]);

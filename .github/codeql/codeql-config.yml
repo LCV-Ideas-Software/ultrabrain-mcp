@@ -1,7 +1,0 @@
-name: Ultrabrain CodeQL configuration
-
-paths-ignore:
-  # This exact helper is retired, is excluded from the npm package, and remains
-  # executable only by its audit-contract tests. The historical workflow that
-  # could invoke it is preserved as a non-active fixture.
-  - scripts/historical-release-recovery.mjs

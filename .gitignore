@@ -63,3 +63,7 @@ CLAUDE.md
 GEMINI.md
 memory/
 memories/
+
+# Local AI agent instructions (kept out of version control by organization convention)
+AGENTS.md
+.github/copilot-instructions.md

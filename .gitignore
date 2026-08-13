@@ -59,11 +59,11 @@ Desktop.ini
 .continue/
 .windsurf/
 AGENTS.local.md
-CLAUDE.md
 GEMINI.md
 memory/
 memories/
 
-# Local AI agent instructions (kept out of version control by organization convention)
-AGENTS.md
+# Instrucoes de agente versionadas: AGENTS.md e CLAUDE.md sao rastreados por este
+# repositorio (ritual de registro G1..G4). Somente as instrucoes locais do Copilot
+# permanecem fora de versao.
 .github/copilot-instructions.md

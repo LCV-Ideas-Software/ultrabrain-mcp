@@ -43,6 +43,7 @@ jobs:
     name: Add item to projects
     if: ${{ vars.LCV_PROJECTS_APP_CLIENT_ID != '' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions: write-all
     # Confina a chave privada do App a este job (zizmor secrets-outside-env).
     # Mesmo padrao ja usado pela organizacao para credenciais de automacao.

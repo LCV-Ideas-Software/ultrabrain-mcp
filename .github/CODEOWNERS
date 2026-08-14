@@ -2,6 +2,7 @@
 
 # Agent and repository governance
 /AGENTS.md @lcv-leo
+/CLAUDE.md @lcv-leo
 /.ai/ @lcv-leo
 /.github/CODEOWNERS @lcv-leo
 /.github/dependabot.yml @lcv-leo

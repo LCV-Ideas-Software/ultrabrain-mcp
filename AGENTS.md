@@ -102,6 +102,10 @@ enfrentar este problema daqui a tres meses?"* Se sim, vira Discussion.
 
 **G4 — trabalho nao-trivial.** Abra a issue **antes** do PR e referencie com `Closes #N`.
 Isso ativa o fechamento automatico, o campo *Linked pull requests* e a progressao de Status.
+**Excecao de seguranca** (tambem no G4): correcao de vulnerabilidade nao abre issue
+publica nem carrega `Closes #N` de superficie publica — o rastreio segue o reporte
+privado de `SECURITY.md` e o advisory correspondente; o PR referencia o advisory,
+sem detalhes de exploracao.
 
 ### Valvula de escape
 

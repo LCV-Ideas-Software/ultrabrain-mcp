@@ -19,6 +19,7 @@
     "THIRDPARTY.md"
   ],
   "scripts": {
+    "projects:boundaries": "node --test .github/scripts/add-to-project-workflow.regression.mjs",
     "build": "tsc -p tsconfig.json && node scripts/bundle-mcp-server.mjs",
     "smoke": "node scripts/smoke.mjs",
     "test:unit": "vitest run",

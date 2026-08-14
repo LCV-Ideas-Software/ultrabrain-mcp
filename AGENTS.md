@@ -24,6 +24,7 @@ prefix. Do not add legacy third-party tool names as public aliases.
 npm test
 npm run format:public:check
 npm pack --dry-run
+npm run projects:boundaries
 ```
 
 For local MCP runtime checks after installation:

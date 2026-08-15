@@ -84,8 +84,6 @@ assert.doesNotMatch(
 );
 
 const publishPermissionContract = new Map([
-  ["assert-npm-environment-boundary", ["id-token: write"]],
-  ["assert-npm-production-boundary", ["id-token: write"]],
   ["gate", ["contents: read"]],
   ["publish-npmjs", ["contents: read", "id-token: write"]],
   ["verify-npmjs", ["contents: read"]],
@@ -112,13 +110,19 @@ for (const [jobName, expectedPermissions] of publishPermissionContract) {
     `publication job ${jobName} must retain only its required token permissions`,
   );
 }
+assert.equal(
+  publishWorkflow.match(/\n {4}environment:(?: npm-production|\n {6}name: npm-production)(?:\n|$)/g)
+    ?.length ?? 0,
+  1,
+  "only the official npmjs writer may enter the npm Trusted Publisher environment",
+);
 
 const gateJob = publishWorkflow.match(/\n {2}gate:[\s\S]*?(?=\n {2}publish-npmjs:)/)?.[0];
 assert.ok(gateJob, "publication gate must remain a distinct job");
-assert.match(
+assert.doesNotMatch(
   gateJob,
-  /\n {4}needs: assert-npm-production-boundary/,
-  "the publication gate must wait for both npm environment-boundary proofs",
+  /\n {4}needs:/,
+  "the immutable artifact gate must not depend on a bespoke npm OIDC probe",
 );
 assert.match(
   gateJob,
@@ -131,136 +135,16 @@ assert.doesNotMatch(
   "the project-code gate must stay outside the npm Trusted Publisher environment",
 );
 
-const npmBoundaryJob = publishWorkflow.match(
-  /\n {2}assert-npm-environment-boundary:[\s\S]*?(?=\n {2}assert-npm-production-boundary:)/,
-)?.[0];
-assert.ok(
-  npmBoundaryJob,
-  "publication must start with a fail-closed npm Trusted Publisher boundary probe",
-);
-assert.match(
-  npmBoundaryJob,
-  new RegExp(`PACKAGE_NAME:\\s*["']${packageJson.name.replace("/", "\\/")}["']`),
-  "the pre-checkout boundary probe package must match package.json",
-);
-assert.doesNotMatch(
-  npmBoundaryJob,
-  /\n\s+(?:uses:|environment:)/,
-  "the boundary probe must not checkout code, invoke an action, or enter an environment",
-);
-assert.match(
-  npmBoundaryJob,
-  /oidc\/token\/exchange\/package\/\$encoded_package/,
-  "the boundary probe must call npm's documented OIDC exchange endpoint",
-);
-assert.equal(
-  npmBoundaryJob.match(/--header "npm-command: publish"/g)?.length ?? 0,
-  1,
-  "the negative boundary probe must identify the npm publish operation exactly like npm CLI",
-);
-assert.match(
-  npmBoundaryJob,
-  /http_code="\$\(curl[\s\S]*?--request POST \\\r?\n\s+--header "Authorization: Bearer \$oidc_id_token" \\\r?\n\s+--header "npm-command: publish" "\$exchange_url"\)"/,
-  "the negative probe must send the npm publish operation on the OIDC exchange request itself",
-);
-assert.match(
-  npmBoundaryJob,
-  /\.workflow_ref == \$workflow/,
-  "the boundary probe must bind the standard workflow_ref claim for a non-reusable workflow",
-);
-assert.doesNotMatch(
-  npmBoundaryJob,
-  /job_workflow_ref/,
-  "job_workflow_ref is reserved for reusable workflows and would fail closed incorrectly here",
-);
-assert.match(
-  npmBoundaryJob,
-  /401\|404\)[\s\S]*?correctly rejected or concealed[\s\S]*?201\)[\s\S]*?refusing/,
-  "only npm's documented identity rejection or concealment may pass; issuance outside npm-production must fail",
-);
-assert.match(
-  npmBoundaryJob,
-  /encoded_package="\$\{PACKAGE_NAME\/\\\/\/%2f\}"/,
-  "the boundary probe must match npm-package-arg escapedName semantics for scoped packages",
-);
-for (const transientStatus of ["000", "408", "425", "429"]) {
+for (const bespokeOidcToken of [
+  "assert-npm-environment-boundary",
+  "assert-npm-production-boundary",
+  "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+  "ACTIONS_ID_TOKEN_REQUEST_URL",
+  "oidc/token/exchange",
+]) {
   assert.ok(
-    npmBoundaryJob.includes(`[ "$http_code" = "${transientStatus}" ]`),
-    `the boundary probe must retry transient status ${transientStatus} before failing closed`,
-  );
-}
-
-const npmProductionBoundaryJob = publishWorkflow.match(
-  /\n {2}assert-npm-production-boundary:[\s\S]*?(?=\n {2}gate:)/,
-)?.[0];
-assert.ok(
-  npmProductionBoundaryJob,
-  "publication must prove the exact authorized npm-production context before executing project code",
-);
-assert.match(
-  npmProductionBoundaryJob,
-  /\n {4}needs: assert-npm-environment-boundary/,
-  "the authorized-context probe must run only after npm rejects the no-environment context",
-);
-assert.match(
-  npmProductionBoundaryJob,
-  /\n {4}environment: npm-production/,
-  "the authorized-context probe must enter exactly npm-production",
-);
-assert.match(
-  npmProductionBoundaryJob,
-  new RegExp(`PACKAGE_NAME:\\s*["']${packageJson.name.replace("/", "\\/")}["']`),
-  "the authorized-context probe package must match package.json",
-);
-assert.doesNotMatch(
-  npmProductionBoundaryJob,
-  /\n\s+uses:/,
-  "the authorized-context probe must not checkout code or invoke any action",
-);
-assert.match(
-  npmProductionBoundaryJob,
-  /oidc\/token\/exchange\/package\/\$encoded_package/,
-  "the authorized-context probe must call npm's documented OIDC exchange endpoint",
-);
-assert.equal(
-  npmProductionBoundaryJob.match(/--header "npm-command: publish"/g)?.length ?? 0,
-  1,
-  "the authorized-context probe must identify the npm publish operation exactly like npm CLI",
-);
-assert.match(
-  npmProductionBoundaryJob,
-  /http_code="\$\(curl[\s\S]*?--request POST \\\r?\n\s+--header "Authorization: Bearer \$oidc_id_token" \\\r?\n\s+--header "npm-command: publish" "\$exchange_url"\)"/,
-  "the authorized probe must send the npm publish operation on the OIDC exchange request itself",
-);
-assert.match(
-  npmProductionBoundaryJob,
-  /encoded_package="\$\{PACKAGE_NAME\/\\\/\/%2f\}"/,
-  "the authorized-context probe must match npm-package-arg escapedName semantics for scoped packages",
-);
-assert.match(
-  npmProductionBoundaryJob,
-  /\.workflow_ref == \$workflow/,
-  "the authorized-context probe must bind the standard workflow_ref claim",
-);
-assert.match(
-  npmProductionBoundaryJob,
-  /\.environment == "npm-production"/,
-  "the authorized-context probe must bind the exact environment claim",
-);
-assert.match(
-  npmProductionBoundaryJob,
-  /\.sub \| endswith\(":environment:npm-production"\)/,
-  "the authorized-context probe must bind the exact environment subject suffix",
-);
-assert.match(
-  npmProductionBoundaryJob,
-  /201\)[\s\S]*?authorized the exact[\s\S]*?401\)[\s\S]*?refusing/,
-  "only credential issuance in npm-production may pass; rejection must fail closed",
-);
-for (const transientStatus of ["000", "408", "425", "429"]) {
-  assert.ok(
-    npmProductionBoundaryJob.includes(`[ "$http_code" = "${transientStatus}" ]`),
-    `the authorized-context probe must retry transient status ${transientStatus} before failing closed`,
+    !publishWorkflow.includes(bespokeOidcToken),
+    `publication must delegate npm OIDC to the official npm client instead of retaining ${bespokeOidcToken}`,
   );
 }
 
@@ -281,7 +165,28 @@ assert.doesNotMatch(
 assert.match(
   publishJob,
   /npm publish[^\n]*--provenance[^\n]*--ignore-scripts/,
-  "the npm writer must publish the immutable tarball with provenance and lifecycle scripts disabled",
+  "the npm writer must use the official npm client for OIDC publication with provenance and lifecycle scripts disabled",
+);
+for (const traditionalCredential of [
+  "NODE_AUTH_TOKEN",
+  "NPM_TOKEN",
+  "NPM_ID_TOKEN",
+  "_authToken",
+]) {
+  assert.ok(
+    !publishJob.includes(traditionalCredential),
+    `the npmjs writer must authenticate only through npm Trusted Publishing OIDC, not ${traditionalCredential}`,
+  );
+}
+assert.doesNotMatch(
+  publishJob,
+  /\bsecrets(?:\.|\s*\[)/,
+  "the npmjs writer must not receive any repository, organization or environment secret",
+);
+assert.doesNotMatch(
+  publishJob,
+  /\bgithub(?:\.token|\s*\[\s*["']token["']\s*\])/,
+  "the npmjs writer must not use the implicit GitHub token as an npm credential",
 );
 
 const verifyJob = publishWorkflow.match(
@@ -297,6 +202,15 @@ assert.doesNotMatch(
   verifyJob,
   /\n {4}environment:/,
   "post-publication verification must not receive an npm Trusted Publishing environment",
+);
+const githubPackagesJob = publishWorkflow.match(
+  /\n {2}publish-gh-packages:[\s\S]*?(?=\n {2}github-release:)/,
+)?.[0];
+assert.ok(githubPackagesJob, "GitHub Packages publication must remain a distinct writer job");
+assert.match(
+  githubPackagesJob,
+  /\n {4}needs: \[gate, verify-npmjs\]/,
+  "GitHub Packages must wait for npmjs.com to publish and verify so npm authorization cannot create a partial release",
 );
 assert.match(
   publishWorkflow,

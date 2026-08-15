@@ -2,18 +2,17 @@
 
 ## Supported status
 
-Latest supported source/release target: v01.02.13 for npm package 1.2.13. The current main branch is also supported for security fixes until the next release is published.
+Latest supported source/release target: v01.02.14 for npm package 1.2.14. The current main branch is also supported for security fixes until the next release is published.
 
-The supported line retains the v01.02.09 security baseline, which upgrades the
-SHA-512-verified npm toolchain to 12.0.2 on Linux and
-Windows and requires two clean-room OIDC exchange proofs before any checkout or
-dependency execution: npm must return its documented `401` rejection or
-identity-concealing `404` outside `npm-production` and authorize the exact
-context inside it with `201`. Both probes use npm-compatible scoped-package
-escaping. The positive probe discards its issued
-credential without checking out code or invoking an action; only the immutable
-npmjs writer uses an npm OIDC credential to publish. Registry/provenance
-verification runs afterward without that environment. It also resolves the
+The supported line retains the v01.02.09 security baseline and its
+SHA-512-verified npm 12.0.2 toolchain on Linux and Windows. Trusted Publishing
+credential acquisition is delegated exclusively to the official npm client by
+the immutable `npm publish` step inside `npm-production`; the repository does
+not reproduce npm's OIDC exchange with custom HTTP probes. The writer
+revalidates the protected tag, checkout, gate SHA and current-main ancestry
+immediately before publication. Unprivileged registry/provenance verification
+runs afterward without that environment, and GitHub Packages waits for that
+npmjs verification before its own write. The supported line also resolves the
 current Hono, `fast-uri` and PostCSS advisories, plus GHSA-mwp4-54f8-5fhr,
 GHSA-4xrf-jv44-h6hh and GHSA-22jq-vg5j-6vgg in `ip-address`, with 4.12.34,
 3.1.5, 8.5.25 and 10.4.0 respectively. Hono 4.12.34 includes the fix for

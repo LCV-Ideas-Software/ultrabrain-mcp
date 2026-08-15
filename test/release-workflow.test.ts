@@ -122,14 +122,15 @@ describe("release workflow invariants", () => {
     expect(autoTag).not.toContain('git rev-parse "$' + '{target_sha}^1"');
   });
 
-  it("keeps release refs authenticated and exact-SHA security evidence blocking", () => {
+  it("keeps release refs authenticated without rebuilding custom SARIF gates", () => {
     expect(autoTag).not.toContain("git ls-remote");
     expect(autoTag).toContain("/git/ref/tags/$" + "{encoded_tag}");
-    expect(autoTag).toContain('"Accept: application/sarif+json"');
-    expect(autoTag).toContain(".commit_sha == $sha");
-    expect(autoTag).not.toContain('.ruleId != "VulnerabilitiesID"');
-    expect(autoTag).toContain('.ruleId != "TokenPermissionsID"');
-    expect(autoTag).toContain("unexpected result(s)");
+    expect(autoTag).toContain("required_gates=(");
+    expect(autoTag).toContain("$CODEQL_WORKFLOW_ID:.github/workflows/codeql.yml");
+    expect(autoTag).toContain("$SCORECARD_WORKFLOW_ID:.github/workflows/scorecard.yml");
+    expect(autoTag).toContain("$ZIZMOR_WORKFLOW_ID:.github/workflows/zizmor.yml");
+    expect(autoTag).not.toMatch(/code-scanning\/analyses|application\/sarif\+json/);
+    expect(autoTag).not.toMatch(/VulnerabilitiesID|TokenPermissionsID/);
   });
 
   it("never re-runs historical push gates into current-main concurrency groups", () => {

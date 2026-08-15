@@ -8,6 +8,7 @@ const expectedNpmCliSha512 =
   "b885e890b9418fa1693544d05f53e64f9a73ec194837d4258b15fecdd692347b1dd2a517b1b0cbaf9d31cd8e92c3b70956bd2ecc72833a57b4b3098f5bfa7943";
 const ciWorkflow = read(".github/workflows/ci.yml");
 const formatWorkflow = read(".github/workflows/format-public.yml");
+const autoTagWorkflow = read(".github/workflows/auto-tag.yml");
 const publishWorkflow = read(".github/workflows/publish.yml");
 const npmToolchainAction = read(".github/actions/setup-npm-toolchain/action.yml");
 const packageJson = JSON.parse(read("package.json"));
@@ -27,20 +28,88 @@ assert.equal(
 for (const [workflow, label] of [
   [ciWorkflow, "CI"],
   [formatWorkflow, "public formatting"],
+  [autoTagWorkflow, "auto-tag"],
   [publishWorkflow, "publication"],
 ]) {
-  assert.ok(workflow.includes("permissions: write-all"), `${label} must preserve write-all`);
-  assert.ok(
-    workflow.includes(`NPM_CLI_VERSION: "${expectedNpmCliVersion}"`),
-    `${label} must pin the audited npm CLI version`,
-  );
-  assert.ok(
-    workflow.includes(`NPM_CLI_SHA512: "${expectedNpmCliSha512}"`),
-    `${label} must pin the audited npm tarball digest`,
-  );
-  assert.ok(
-    workflow.includes("uses: ./.github/actions/setup-npm-toolchain"),
-    `${label} must activate the hash-verified npm toolchain`,
+  assert.ok(!workflow.includes("permissions: write-all"), `${label} must not grant write-all`);
+}
+
+assert.ok(
+  publishWorkflow.includes(`NPM_CLI_VERSION: "${expectedNpmCliVersion}"`),
+  "publication must pin the audited npm CLI version",
+);
+assert.ok(
+  publishWorkflow.includes(`NPM_CLI_SHA512: "${expectedNpmCliSha512}"`),
+  "publication must pin the audited npm tarball digest",
+);
+assert.ok(
+  publishWorkflow.includes("uses: ./.github/actions/setup-npm-toolchain"),
+  "publication must activate the hash-verified npm toolchain",
+);
+
+assert.match(ciWorkflow, /^permissions: \{\}$/m, "CI must default the token to no permissions");
+assert.match(
+  formatWorkflow,
+  /^permissions: \{\}$/m,
+  "public formatting must default the token to no permissions",
+);
+assert.match(
+  publishWorkflow,
+  /^permissions: \{\}$/m,
+  "publication must default the token to no permissions",
+);
+assert.match(
+  autoTagWorkflow,
+  /^permissions: \{\}$/m,
+  "auto-tag must default the token to no permissions",
+);
+const autoTagJob = autoTagWorkflow.match(/\n {2}auto-tag:[\s\S]*$/)?.[0];
+assert.ok(autoTagJob, "auto-tag controller job must exist");
+const autoTagPermissions = autoTagJob.match(
+  /\n {4}permissions:\n((?: {6}[a-z-]+: (?:read|write)(?: +#.*)?\n)+)/,
+)?.[1];
+assert.ok(autoTagPermissions, "auto-tag controller must declare scoped permissions");
+assert.deepEqual(
+  autoTagPermissions
+    .trim()
+    .split("\n")
+    .map((line) => line.replace(/\s+#.*$/, "").trim()),
+  ["actions: write", "contents: write"],
+  "auto-tag must retain only the permissions required to inspect runs, create a tag and dispatch publication",
+);
+assert.doesNotMatch(
+  autoTagWorkflow,
+  /code-scanning\/analyses|application\/sarif\+json/,
+  "auto-tag must rely on official workflow conclusions instead of a custom SARIF gate",
+);
+
+const publishPermissionContract = new Map([
+  ["assert-npm-environment-boundary", ["id-token: write"]],
+  ["assert-npm-production-boundary", ["id-token: write"]],
+  ["gate", ["contents: read"]],
+  ["publish-npmjs", ["contents: read", "id-token: write"]],
+  ["verify-npmjs", ["contents: read"]],
+  ["publish-gh-packages", ["contents: read", "id-token: write", "packages: write"]],
+  ["github-release", ["contents: write"]],
+]);
+
+for (const [jobName, expectedPermissions] of publishPermissionContract) {
+  const escapedJobName = jobName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const job = publishWorkflow.match(
+    new RegExp(`\\n {2}${escapedJobName}:[\\s\\S]*?(?=\\n {2}[a-z0-9-]+:|$)`),
+  )?.[0];
+  assert.ok(job, `publication job ${jobName} must exist`);
+  const permissions = job.match(
+    /\n {4}permissions:\n((?: {6}[a-z-]+: (?:read|write)(?: +#.*)?\n)+)/,
+  )?.[1];
+  assert.ok(permissions, `publication job ${jobName} must declare scoped permissions`);
+  assert.deepEqual(
+    permissions
+      .trim()
+      .split("\n")
+      .map((line) => line.replace(/\s+#.*$/, "").trim()),
+    expectedPermissions,
+    `publication job ${jobName} must retain only its required token permissions`,
   );
 }
 

@@ -173,6 +173,18 @@ describe("release workflow invariants", () => {
     expect(scorecard).not.toContain("$" + "{{ github.event_name }}-$" + "{{ github.ref }}");
   });
 
+  it("checks out only the trusted immutable event SHA in every publish job", () => {
+    const checkoutUses = publish.match(/uses: actions\/checkout@[0-9a-f]{40}/g);
+    const trustedCheckoutBlocks = publish.match(
+      /uses: actions\/checkout@[0-9a-f]{40}[^\r\n]*\r?\n\s+with:\r?\n\s+ref: \$\{\{ github\.sha \}\}/g,
+    );
+
+    expect(checkoutUses).toHaveLength(5);
+    expect(trustedCheckoutBlocks).toHaveLength(5);
+    expect(publish).not.toContain("ref: $" + "{{ needs.gate.outputs.sha }}");
+    expect(publish.match(/VERIFIED_SHA: \$\{\{ needs\.gate\.outputs\.sha \}\}/g)).toHaveLength(3);
+  });
+
   it("recognizes digest-less assets only after exact publish proof and byte verification", () => {
     expect(autoTag).toContain("actions/workflows/$" + "{publish_workflow_id}/runs");
     expect(autoTag).toContain(".head_sha == $sha");

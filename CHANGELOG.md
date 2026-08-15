@@ -2,7 +2,7 @@
 
 <!-- Release headings must use ISO dates (## x.y.z - YYYY-MM-DD); test/meta.test.ts enforces this on the head entry. -->
 
-## Unreleased
+## 1.2.12 - 2026-08-15
 
 ### Added
 
@@ -37,6 +37,11 @@
 
 ### Security
 
+- Prepared the supported security release target for `v01.02.12` / npm
+  `1.2.12`.
+- Bound every privileged release checkout to the immutable SHA carried by the
+  protected-tag event while retaining the independent tag, checkout and gate
+  identity checks before each publication write.
 - Documented the operator-approved, file-local Zizmor exception for the
   release controller's `workflow_run`; the controller accepts only the exact
   successful CI `push` on `main` and revalidates its SHA before write

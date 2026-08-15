@@ -2,9 +2,10 @@
 
 ## Supported status
 
-Latest supported source/release target: v01.02.09 for npm package 1.2.9. The current main branch is also supported for security fixes until the next release is published.
+Latest supported source/release target: v01.02.12 for npm package 1.2.12. The current main branch is also supported for security fixes until the next release is published.
 
-v01.02.09 upgrades the SHA-512-verified npm toolchain to 12.0.2 on Linux and
+The supported line retains the v01.02.09 security baseline, which upgrades the
+SHA-512-verified npm toolchain to 12.0.2 on Linux and
 Windows and requires two clean-room OIDC exchange proofs before any checkout or
 dependency execution: npm must return its documented `401` rejection or
 identity-concealing `404` outside `npm-production` and authorize the exact

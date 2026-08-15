@@ -23,6 +23,8 @@
 - Raised the default Dependabot cooldown to seven days so the official Zizmor
   audit accepts both update definitions; GitHub Actions remain explicitly
   excluded from cooldown and security updates remain immediate.
+- Isolated CodeQL and Scorecard concurrency by event so scheduled or manual
+  analyses cannot cancel the exact `push` run consumed by auto-tag.
 
 ### Removed
 

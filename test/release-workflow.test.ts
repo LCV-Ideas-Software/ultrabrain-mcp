@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const autoTag = readFileSync(new URL("../.github/workflows/auto-tag.yml", import.meta.url), "utf8");
+const codeql = readFileSync(new URL("../.github/workflows/codeql.yml", import.meta.url), "utf8");
 const publish = readFileSync(new URL("../.github/workflows/publish.yml", import.meta.url), "utf8");
+const scorecard = readFileSync(
+  new URL("../.github/workflows/scorecard.yml", import.meta.url),
+  "utf8",
+);
 
 describe("release workflow invariants", () => {
   it("publishes explicit local tarball paths instead of npm git specifications", () => {
@@ -137,6 +142,18 @@ describe("release workflow invariants", () => {
     expect(autoTag).not.toMatch(/actions\/runs\/[^\s"']+\/rerun/);
     expect(autoTag).not.toContain("rerun-failed-jobs");
     expect(autoTag).toContain('.conclusion != "success"');
+  });
+
+  it("keeps scheduled analyses out of the exact push-gate concurrency groups", () => {
+    expect(codeql).toContain(
+      "group: codeql-$" + "{{ github.workflow }}-$" + "{{ github.event_name }}-",
+    );
+    expect(scorecard).toContain(
+      "group: scorecard-$" +
+        "{{ github.workflow }}-$" +
+        "{{ github.event_name }}-$" +
+        "{{ github.ref }}",
+    );
   });
 
   it("recognizes digest-less assets only after exact publish proof and byte verification", () => {

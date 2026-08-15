@@ -20,7 +20,7 @@
 
 **Install.** `npm install -g @lcv-ideas-software/ultrabrain-mcp` from npmjs.com, or `npm install -g @lcv-ideas-software/ultrabrain-mcp --registry=https://npm.pkg.github.com` from the GitHub Packages mirror.
 
-**Status.** Stable. Current release target: **v01.02.11** (npm package `1.2.11`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
+**Status.** Stable. Current release target: **v01.02.12** (npm package `1.2.12`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
 
 First publication started at **v01.00.00**. Public GitHub tags use the LCV display convention `v00.00.00`; npm keeps normal SemVer.
 
@@ -30,7 +30,8 @@ The version history at a glance:
 
 | Release     | Package  | Date       | Notes                                                                                                                                                                                                                                      |
 | ----------- | -------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `v01.02.11` | `1.2.11` | 2026-08-05 | Adds the read-only `ultrabrain_server_info` tool (cross-review `server_info` parity): identity, release, capabilities, tool/prompt/resource surface, persistence `data_dir`/config, session count, engine limits, and security policy.     |
+| `v01.02.12` | `1.2.12` | 15/08/2026 | Hardens immutable release checkout provenance, replaces retired dependency automation with native and official controls, and updates the reviewed Node.js and esbuild development dependencies.                                               |
+| `v01.02.11` | `1.2.11` | 05/08/2026 | Adds the read-only `ultrabrain_server_info` tool (cross-review `server_info` parity): identity, release, capabilities, tool/prompt/resource surface, persistence `data_dir`/config, session count, engine limits, and security policy.     |
 | `v01.02.10` | `1.2.10` | 05/08/2026 | Moves GitHub administration authority to a non-deploying protected environment, verifies canonical npm registry routing, and separates urgent CodeQL security updates from routine dependency batches.                                     |
 | `v01.02.09` | `1.2.9`  | 03/08/2026 | Uses checksum-verified npm 12.0.2, accepts only documented `401`/identity-concealing `404` in the negative OIDC probe, requires exact `201` in the positive probe, isolates the writer, and updates vulnerable dependencies.               |
 | `v01.02.08` | `1.2.8`  | 28/07/2026 | Completes the provenance-bound 1.2.5/1.2.6 release recovery, preserves the ambiguous 1.2.4 drafts as audit evidence, bundles MCP SDK 1.30.0, removes Socket/StepSecurity integrations, and makes the SDK license regression version-aware. |

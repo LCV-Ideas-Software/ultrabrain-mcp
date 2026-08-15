@@ -2,19 +2,35 @@
 
 <!-- Release headings must use ISO dates (## x.y.z - YYYY-MM-DD); test/meta.test.ts enforces this on the head entry. -->
 
+## 1.2.14 - 2026-08-15
+
+### Fixed
+
+- Removed the two repository-owned manual npm OIDC token-exchange probes after
+  the immutable `v01.02.13` canary proved that the no-environment identity was
+  rejected as expected while the exact `npm-production` identity still
+  received `401`, even with npm's operation header. Trusted Publishing
+  credential acquisition now belongs exclusively to the official,
+  SHA-512-verified npm 12.0.2 client in the real `npm publish` step inside
+  `npm-production`.
+- Serialized GitHub Packages behind successful, unprivileged npmjs visibility
+  and integrity verification. An npm authorization failure therefore stops
+  before either the GitHub Packages writer or GitHub Release reconciliation.
+- Preserved `v01.02.12` and `v01.02.13` as protected tag-only failed canaries;
+  neither produced npmjs, GitHub Packages, or GitHub Release artifacts. The new
+  immutable recovery target is `v01.02.14` / npm `1.2.14`.
+
 ## 1.2.13 - 2026-08-15
 
 ### Fixed
 
-- Aligned both fail-closed npm Trusted Publisher exchange probes with npm CLI
-  12.0.2 by sending the official `npm-command: publish` operation context.
-  The negative probe still has no environment and must be rejected, while the
-  positive probe still enters exactly `npm-production` and must receive a
-  credential before any project code or publication step can run.
-- Superseded the tag-only `v01.02.12` canary after its boundary probe stopped
-  before executing project code or publishing npm, GitHub Packages or GitHub
-  Release artifacts. The corrected immutable publication target is
-  `v01.02.13` / npm `1.2.13`.
+- Added npm CLI's `npm-command: publish` operation header to both manual
+  Trusted Publisher exchange probes. The immutable canary disproved that
+  hypothesis: the exact `npm-production` probe still returned `401`, and all
+  project-code and publication jobs remained skipped.
+- Superseded this tag-only canary with the official-client recovery in
+  `v01.02.14`; no npmjs, GitHub Packages, or GitHub Release artifact exists for
+  `v01.02.13`.
 
 ## 1.2.12 - 2026-08-15
 

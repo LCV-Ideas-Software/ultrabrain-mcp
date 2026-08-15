@@ -153,15 +153,15 @@ assert.match(
   /oidc\/token\/exchange\/package\/\$encoded_package/,
   "the boundary probe must call npm's documented OIDC exchange endpoint",
 );
-assert.equal(
-  npmBoundaryJob.match(/--header "npm-command: publish"/g)?.length ?? 0,
-  1,
-  "the negative boundary probe must identify the npm publish operation exactly like npm CLI",
+assert.doesNotMatch(
+  npmBoundaryJob,
+  /--header "npm-command: publish"/,
+  "the negative probe must exchange only the OIDC token and let npm infer operation context",
 );
 assert.match(
   npmBoundaryJob,
-  /http_code="\$\(curl[\s\S]*?--request POST \\\r?\n\s+--header "Authorization: Bearer \$oidc_id_token" \\\r?\n\s+--header "npm-command: publish" "\$exchange_url"\)"/,
-  "the negative probe must send the npm publish operation on the OIDC exchange request itself",
+  /http_code="\$\(curl[\s\S]*?--request POST \\r?\n\s+--header "Authorization: [^"]+" "\$exchange_url"\)"/,
+  "the negative probe must keep the OIDC exchange request minimal and deterministic",
 );
 assert.match(
   npmBoundaryJob,
@@ -222,15 +222,15 @@ assert.match(
   /oidc\/token\/exchange\/package\/\$encoded_package/,
   "the authorized-context probe must call npm's documented OIDC exchange endpoint",
 );
-assert.equal(
-  npmProductionBoundaryJob.match(/--header "npm-command: publish"/g)?.length ?? 0,
-  1,
-  "the authorized-context probe must identify the npm publish operation exactly like npm CLI",
+assert.doesNotMatch(
+  npmProductionBoundaryJob,
+  /--header "npm-command: publish"/,
+  "the authorized-context probe must exchange only the OIDC token and let npm infer operation context",
 );
 assert.match(
   npmProductionBoundaryJob,
-  /http_code="\$\(curl[\s\S]*?--request POST \\\r?\n\s+--header "Authorization: Bearer \$oidc_id_token" \\\r?\n\s+--header "npm-command: publish" "\$exchange_url"\)"/,
-  "the authorized probe must send the npm publish operation on the OIDC exchange request itself",
+  /http_code="\$\(curl[\s\S]*?--request POST \\r?\n\s+--header "Authorization: [^"]+" "\$exchange_url"\)"/,
+  "the authorized probe must keep the OIDC exchange request minimal and deterministic",
 );
 assert.match(
   npmProductionBoundaryJob,

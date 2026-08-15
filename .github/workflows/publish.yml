@@ -77,8 +77,7 @@ jobs:
             set +e
             http_code="$(curl --proto '=https' --tlsv1.2 --silent --show-error \
               --output /dev/null --write-out '%{http_code}' --request POST \
-              --header "Authorization: Bearer $oidc_id_token" \
-              --header "npm-command: publish" "$exchange_url")"
+              --header "Authorization: Bearer $oidc_id_token" "$exchange_url")"
             curl_status=$?
             set -e
             if [ "$curl_status" -ne 0 ]; then
@@ -177,8 +176,7 @@ jobs:
             set +e
             http_code="$(curl --proto '=https' --tlsv1.2 --silent --show-error \
               --output /dev/null --write-out '%{http_code}' --request POST \
-              --header "Authorization: Bearer $oidc_id_token" \
-              --header "npm-command: publish" "$exchange_url")"
+              --header "Authorization: Bearer $oidc_id_token" "$exchange_url")"
             curl_status=$?
             set -e
             if [ "$curl_status" -ne 0 ]; then

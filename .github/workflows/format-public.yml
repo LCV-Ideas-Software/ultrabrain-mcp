@@ -1,43 +1,48 @@
 name: Public Format
+
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
-    branches: [main]
+    branches:
+      - main
   merge_group:
     types:
       - checks_requested
-permissions: write-all
-env:
-  NPM_CLI_VERSION: "12.0.2"
-  NPM_CLI_SHA512: "b885e890b9418fa1693544d05f53e64f9a73ec194837d4258b15fecdd692347b1dd2a517b1b0cbaf9d31cd8e92c3b70956bd2ecc72833a57b4b3098f5bfa7943"
+
+permissions: {}
+
+concurrency:
+  group: public-format-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   prettier-public:
-    permissions: write-all
     name: Check index.html formatting
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
-      - name: Checkout
+      - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Setup Node.js 24
+
+      - name: Set up Node.js 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           check-latest: true
           package-manager-cache: false
-      - name: Setup hash-verified npm v12 toolchain
-        uses: ./.github/actions/setup-npm-toolchain
-        with:
-          version: ${{ env.NPM_CLI_VERSION }}
-          sha512: ${{ env.NPM_CLI_SHA512 }}
+
+      - name: Verify npm registry
+        shell: bash
+        run: test "$(npm config get registry)" = "https://registry.npmjs.org/"
+
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
+
       - name: Check public page formatting
         run: npm run format:public:check
-    timeout-minutes: 15
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  queue: max
-  cancel-in-progress: false

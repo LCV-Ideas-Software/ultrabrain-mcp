@@ -8,7 +8,7 @@ updates:
       time: "01:00"
       timezone: "America/Los_Angeles"
     cooldown:
-      default-days: 3
+      default-days: 7
     open-pull-requests-limit: 10
     groups:
       production-dependencies:
@@ -35,7 +35,7 @@ updates:
       time: "01:00"
       timezone: "America/Los_Angeles"
     cooldown:
-      default-days: 3
+      default-days: 7
       exclude:
         - "*"
     open-pull-requests-limit: 10

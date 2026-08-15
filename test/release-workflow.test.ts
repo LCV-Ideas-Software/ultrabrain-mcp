@@ -2,7 +2,18 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const autoTag = readFileSync(new URL("../.github/workflows/auto-tag.yml", import.meta.url), "utf8");
+const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+const codeql = readFileSync(new URL("../.github/workflows/codeql.yml", import.meta.url), "utf8");
+const formatPublic = readFileSync(
+  new URL("../.github/workflows/format-public.yml", import.meta.url),
+  "utf8",
+);
 const publish = readFileSync(new URL("../.github/workflows/publish.yml", import.meta.url), "utf8");
+const scorecard = readFileSync(
+  new URL("../.github/workflows/scorecard.yml", import.meta.url),
+  "utf8",
+);
+const zizmor = readFileSync(new URL("../.github/workflows/zizmor.yml", import.meta.url), "utf8");
 
 describe("release workflow invariants", () => {
   it("publishes explicit local tarball paths instead of npm git specifications", () => {
@@ -122,20 +133,44 @@ describe("release workflow invariants", () => {
     expect(autoTag).not.toContain('git rev-parse "$' + '{target_sha}^1"');
   });
 
-  it("keeps release refs authenticated and exact-SHA security evidence blocking", () => {
+  it("keeps release refs authenticated without rebuilding custom SARIF gates", () => {
     expect(autoTag).not.toContain("git ls-remote");
     expect(autoTag).toContain("/git/ref/tags/$" + "{encoded_tag}");
-    expect(autoTag).toContain('"Accept: application/sarif+json"');
-    expect(autoTag).toContain(".commit_sha == $sha");
-    expect(autoTag).not.toContain('.ruleId != "VulnerabilitiesID"');
-    expect(autoTag).toContain('.ruleId != "TokenPermissionsID"');
-    expect(autoTag).toContain("unexpected result(s)");
+    expect(autoTag).toContain("required_gates=(");
+    expect(autoTag).toContain("$CODEQL_WORKFLOW_ID:.github/workflows/codeql.yml");
+    expect(autoTag).toContain("$SCORECARD_WORKFLOW_ID:.github/workflows/scorecard.yml");
+    expect(autoTag).toContain("$ZIZMOR_WORKFLOW_ID:.github/workflows/zizmor.yml");
+    expect(autoTag).not.toMatch(/code-scanning\/analyses|application\/sarif\+json/);
+    expect(autoTag).not.toMatch(/VulnerabilitiesID|TokenPermissionsID/);
   });
 
   it("never re-runs historical push gates into current-main concurrency groups", () => {
     expect(autoTag).not.toMatch(/actions\/runs\/[^\s"']+\/rerun/);
     expect(autoTag).not.toContain("rerun-failed-jobs");
     expect(autoTag).toContain('.conclusion != "success"');
+  });
+
+  it("keeps scheduled analyses out of the exact push-gate concurrency groups", () => {
+    const eventScopedGroup = "$" + "{{ github.workflow }}-$" + "{{ github.event_name }}-";
+    expect(codeql).toContain(eventScopedGroup);
+    expect(scorecard).toContain(eventScopedGroup);
+  });
+
+  it("preserves every exact-SHA push gate consumed by the release controller", () => {
+    const exactShaGroup =
+      "$" + "{{ github.event_name }}-$" + "{{ github.event.pull_request.number || github.sha }}";
+    const pullRequestCancellation =
+      "cancel-in-progress: $" + "{{ github.event_name == 'pull_request' }}";
+
+    for (const workflow of [ci, codeql, formatPublic, zizmor]) {
+      expect(workflow).toContain(exactShaGroup);
+      expect(workflow).toContain(pullRequestCancellation);
+      expect(workflow).not.toContain("github.event.pull_request.number || github.ref");
+    }
+
+    expect(scorecard).toContain("$" + "{{ github.event_name }}-$" + "{{ github.sha }}");
+    expect(scorecard).toContain("cancel-in-progress: false");
+    expect(scorecard).not.toContain("$" + "{{ github.event_name }}-$" + "{{ github.ref }}");
   });
 
   it("recognizes digest-less assets only after exact publish proof and byte verification", () => {

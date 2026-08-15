@@ -3,7 +3,7 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-permissions: write-all
+permissions: {}
 concurrency:
   group: ultrabrain-publish
   queue: max
@@ -15,7 +15,8 @@ jobs:
   assert-npm-environment-boundary:
     name: Assert npm Trusted Publisher environment boundary
     runs-on: ubuntu-latest
-    permissions: write-all
+    permissions:
+      id-token: write # Request the OIDC identity used only by the negative npm boundary probe.
     env:
       PACKAGE_NAME: "@lcv-ideas-software/ultrabrain-mcp"
     steps:
@@ -113,7 +114,8 @@ jobs:
     needs: assert-npm-environment-boundary
     runs-on: ubuntu-latest
     environment: npm-production
-    permissions: write-all
+    permissions:
+      id-token: write # Prove the exact npm-production Trusted Publisher identity.
     env:
       PACKAGE_NAME: "@lcv-ideas-software/ultrabrain-mcp"
     steps:
@@ -213,7 +215,8 @@ jobs:
     environment:
       name: github-administration
       deployment: false
-    permissions: write-all
+    permissions:
+      contents: read
     outputs:
       name: ${{ steps.meta.outputs.name }}
       version: ${{ steps.meta.outputs.version }}
@@ -441,7 +444,9 @@ jobs:
     needs: gate
     runs-on: ubuntu-latest
     environment: npm-production
-    permissions: write-all
+    permissions:
+      contents: read
+      id-token: write # Publish to npmjs.com through Trusted Publishing with provenance.
     outputs:
       prior_latest: ${{ steps.npmjs-tag.outputs.prior_latest }}
       publish_tag: ${{ steps.npmjs-tag.outputs.publish_tag }}
@@ -588,7 +593,8 @@ jobs:
     name: Verify npmjs.com publication
     needs: [gate, publish-npmjs]
     runs-on: ubuntu-latest
-    permissions: write-all
+    permissions:
+      contents: read
     steps:
       - name: Checkout immutable release commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -655,7 +661,10 @@ jobs:
     needs: gate
     runs-on: ubuntu-latest
     environment: github-packages-production
-    permissions: write-all
+    permissions:
+      contents: read
+      id-token: write # Generate the provenance requested by the existing package contract.
+      packages: write # Publish the immutable tarball to GitHub Packages.
     steps:
       - name: Checkout immutable release commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -835,7 +844,8 @@ jobs:
     needs: [gate, verify-npmjs, publish-gh-packages]
     runs-on: ubuntu-latest
     environment: github-release-production
-    permissions: write-all
+    permissions:
+      contents: write # Create or reconcile the immutable GitHub Release and its asset.
     steps:
       - name: Checkout immutable release commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

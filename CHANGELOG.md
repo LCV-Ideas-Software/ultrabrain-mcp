@@ -6,10 +6,41 @@
 
 ### Added
 
-- Governanca de trabalho sobre GitHub Projects, Issues e Discussions: quadro dedicado do repositorio, formularios de issue para Incident, Maintenance e Spike, atalhos para Discussions no seletor de issues, workflow `add-to-project` (inerte ate a organizacao definir `LCV_PROJECTS_APP_CLIENT_ID`; gatilho `pull_request_target` sem checkout nem execucao de codigo do PR, para alcancar PRs de fork com o secret do environment (cobertura de PRs do Dependabot nao e garantida por este gatilho: fica decidida por sonda na ativacao e, se necessario, por reconciliacao em evento confiavel), com excecao estreita e documentada do zizmor) e o ritual de registro G1..G4 versionado em `AGENTS.md` e `CLAUDE.md` para Claude Code e ChatGPT-Codex.
+- Added the repository Project, Incident/Maintenance/Spike issue templates,
+  Discussion shortcuts and the G1..G4 tracking ritual in `AGENTS.md` and
+  `CLAUDE.md`.
+
+### Changed
+
+- Updated `@types/node` to 26.2.0 and `esbuild` to 0.28.2, including the exact
+  reviewed install-script authorization for the new esbuild version.
+- Replaced the internal Zizmor reusable workflow with the official
+  `zizmorcore/zizmor-action`, fixed to its reviewed Action and CLI releases.
+- Aligned CodeQL, Dependency Review, OpenSSF Scorecard, Pages, CI and public
+  formatting with their official implementations and least-privilege token
+  grants. Project membership now comes from each Project's native Auto-add
+  workflow.
+- Raised the default Dependabot cooldown to seven days so the official Zizmor
+  audit accepts both update definitions; GitHub Actions remain explicitly
+  excluded from cooldown and security updates remain immediate.
+- Isolated concurrency for every auto-tag push gate (CI, CodeQL, Scorecard,
+  Zizmor and Public Format) by immutable SHA while retaining cancellation only
+  for superseded pull-request runs, so every versioned `main` commit remains
+  observable to release reconciliation.
+
+### Removed
+
+- Removed Native Auto-merge, the repository-owned add-to-project workflow, the
+  custom CodeQL and Scorecard SARIF gates and their semantic regression
+  harnesses. The native merge queue, native Project Auto-add and GitHub
+  code-scanning protections are the authoritative controls.
 
 ### Security
 
+- Documented the operator-approved, file-local Zizmor exception for the
+  release controller's `workflow_run`; the controller accepts only the exact
+  successful CI `push` on `main` and revalidates its SHA before write
+  operations. The exception does not disable the audit anywhere else.
 - Removed the retired historical-release helper and its circular contract tests
   after confirming that no live workflow or production code consumed them. The
   exact pre-removal source remains preserved at its signed commit and SHA-256;

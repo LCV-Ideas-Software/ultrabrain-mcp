@@ -153,6 +153,16 @@ assert.match(
   /oidc\/token\/exchange\/package\/\$encoded_package/,
   "the boundary probe must call npm's documented OIDC exchange endpoint",
 );
+assert.equal(
+  npmBoundaryJob.match(/--header "npm-command: publish"/g)?.length ?? 0,
+  1,
+  "the negative boundary probe must identify the npm publish operation exactly like npm CLI",
+);
+assert.match(
+  npmBoundaryJob,
+  /http_code="\$\(curl[\s\S]*?--request POST \\\r?\n\s+--header "Authorization: Bearer \$oidc_id_token" \\\r?\n\s+--header "npm-command: publish" "\$exchange_url"\)"/,
+  "the negative probe must send the npm publish operation on the OIDC exchange request itself",
+);
 assert.match(
   npmBoundaryJob,
   /\.workflow_ref == \$workflow/,
@@ -211,6 +221,16 @@ assert.match(
   npmProductionBoundaryJob,
   /oidc\/token\/exchange\/package\/\$encoded_package/,
   "the authorized-context probe must call npm's documented OIDC exchange endpoint",
+);
+assert.equal(
+  npmProductionBoundaryJob.match(/--header "npm-command: publish"/g)?.length ?? 0,
+  1,
+  "the authorized-context probe must identify the npm publish operation exactly like npm CLI",
+);
+assert.match(
+  npmProductionBoundaryJob,
+  /http_code="\$\(curl[\s\S]*?--request POST \\\r?\n\s+--header "Authorization: Bearer \$oidc_id_token" \\\r?\n\s+--header "npm-command: publish" "\$exchange_url"\)"/,
+  "the authorized probe must send the npm publish operation on the OIDC exchange request itself",
 );
 assert.match(
   npmProductionBoundaryJob,

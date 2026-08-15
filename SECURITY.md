@@ -2,7 +2,7 @@
 
 ## Supported status
 
-Latest supported source/release target: v01.02.12 for npm package 1.2.12. The current main branch is also supported for security fixes until the next release is published.
+Latest supported source/release target: v01.02.13 for npm package 1.2.13. The current main branch is also supported for security fixes until the next release is published.
 
 The supported line retains the v01.02.09 security baseline, which upgrades the
 SHA-512-verified npm toolchain to 12.0.2 on Linux and

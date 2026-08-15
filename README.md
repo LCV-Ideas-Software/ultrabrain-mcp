@@ -20,7 +20,7 @@
 
 **Install.** `npm install -g @lcv-ideas-software/ultrabrain-mcp` from npmjs.com, or `npm install -g @lcv-ideas-software/ultrabrain-mcp --registry=https://npm.pkg.github.com` from the GitHub Packages mirror.
 
-**Status.** Stable. Current release target: **v01.02.12** (npm package `1.2.12`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
+**Status.** Stable. Current release target: **v01.02.13** (npm package `1.2.13`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
 
 First publication started at **v01.00.00**. Public GitHub tags use the LCV display convention `v00.00.00`; npm keeps normal SemVer.
 
@@ -30,7 +30,8 @@ The version history at a glance:
 
 | Release     | Package  | Date       | Notes                                                                                                                                                                                                                                      |
 | ----------- | -------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `v01.02.12` | `1.2.12` | 15/08/2026 | Hardens immutable release checkout provenance, replaces retired dependency automation with native and official controls, and updates the reviewed Node.js and esbuild development dependencies.                                               |
+| `v01.02.13` | `1.2.13` | 15/08/2026 | Aligns the fail-closed npm Trusted Publisher probes with the operation context sent by npm CLI 12.0.2 and restores the immutable release canary after the tag-only 1.2.12 attempt published no artifacts.                                    |
+| `v01.02.12` | `1.2.12` | 15/08/2026 | Tag-only failed-closed canary: the Trusted Publisher preflight stopped before project code or artifact publication; superseded by `v01.02.13`.                                                               |
 | `v01.02.11` | `1.2.11` | 05/08/2026 | Adds the read-only `ultrabrain_server_info` tool (cross-review `server_info` parity): identity, release, capabilities, tool/prompt/resource surface, persistence `data_dir`/config, session count, engine limits, and security policy.     |
 | `v01.02.10` | `1.2.10` | 05/08/2026 | Moves GitHub administration authority to a non-deploying protected environment, verifies canonical npm registry routing, and separates urgent CodeQL security updates from routine dependency batches.                                     |
 | `v01.02.09` | `1.2.9`  | 03/08/2026 | Uses checksum-verified npm 12.0.2, accepts only documented `401`/identity-concealing `404` in the negative OIDC probe, requires exact `201` in the positive probe, isolates the writer, and updates vulnerable dependencies.               |

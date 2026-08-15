@@ -2,6 +2,20 @@
 
 <!-- Release headings must use ISO dates (## x.y.z - YYYY-MM-DD); test/meta.test.ts enforces this on the head entry. -->
 
+## 1.2.13 - 2026-08-15
+
+### Fixed
+
+- Aligned both fail-closed npm Trusted Publisher exchange probes with npm CLI
+  12.0.2 by sending the official `npm-command: publish` operation context.
+  The negative probe still has no environment and must be rejected, while the
+  positive probe still enters exactly `npm-production` and must receive a
+  credential before any project code or publication step can run.
+- Superseded the tag-only `v01.02.12` canary after its boundary probe stopped
+  before executing project code or publishing npm, GitHub Packages or GitHub
+  Release artifacts. The corrected immutable publication target is
+  `v01.02.13` / npm `1.2.13`.
+
 ## 1.2.12 - 2026-08-15
 
 ### Added

@@ -4,11 +4,16 @@ import { describe, expect, it } from "vitest";
 const autoTag = readFileSync(new URL("../.github/workflows/auto-tag.yml", import.meta.url), "utf8");
 const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 const codeql = readFileSync(new URL("../.github/workflows/codeql.yml", import.meta.url), "utf8");
+const formatPublic = readFileSync(
+  new URL("../.github/workflows/format-public.yml", import.meta.url),
+  "utf8",
+);
 const publish = readFileSync(new URL("../.github/workflows/publish.yml", import.meta.url), "utf8");
 const scorecard = readFileSync(
   new URL("../.github/workflows/scorecard.yml", import.meta.url),
   "utf8",
 );
+const zizmor = readFileSync(new URL("../.github/workflows/zizmor.yml", import.meta.url), "utf8");
 
 describe("release workflow invariants", () => {
   it("publishes explicit local tarball paths instead of npm git specifications", () => {
@@ -146,23 +151,26 @@ describe("release workflow invariants", () => {
   });
 
   it("keeps scheduled analyses out of the exact push-gate concurrency groups", () => {
-    expect(codeql).toContain(
-      "group: codeql-$" + "{{ github.workflow }}-$" + "{{ github.event_name }}-",
-    );
-    expect(scorecard).toContain(
-      "group: scorecard-$" +
-        "{{ github.workflow }}-$" +
-        "{{ github.event_name }}-$" +
-        "{{ github.ref }}",
-    );
+    const eventScopedGroup = "$" + "{{ github.workflow }}-$" + "{{ github.event_name }}-";
+    expect(codeql).toContain(eventScopedGroup);
+    expect(scorecard).toContain(eventScopedGroup);
   });
 
-  it("preserves every main push CI run consumed by the release controller", () => {
-    expect(ci).toContain(
-      "$" + "{{ github.event_name }}-$" + "{{ github.event.pull_request.number || github.sha }}",
-    );
-    expect(ci).toContain("cancel-in-progress: $" + "{{ github.event_name == 'pull_request' }}");
-    expect(ci).not.toContain("github.event.pull_request.number || github.ref");
+  it("preserves every exact-SHA push gate consumed by the release controller", () => {
+    const exactShaGroup =
+      "$" + "{{ github.event_name }}-$" + "{{ github.event.pull_request.number || github.sha }}";
+    const pullRequestCancellation =
+      "cancel-in-progress: $" + "{{ github.event_name == 'pull_request' }}";
+
+    for (const workflow of [ci, codeql, formatPublic, zizmor]) {
+      expect(workflow).toContain(exactShaGroup);
+      expect(workflow).toContain(pullRequestCancellation);
+      expect(workflow).not.toContain("github.event.pull_request.number || github.ref");
+    }
+
+    expect(scorecard).toContain("$" + "{{ github.event_name }}-$" + "{{ github.sha }}");
+    expect(scorecard).toContain("cancel-in-progress: false");
+    expect(scorecard).not.toContain("$" + "{{ github.event_name }}-$" + "{{ github.ref }}");
   });
 
   it("recognizes digest-less assets only after exact publish proof and byte verification", () => {

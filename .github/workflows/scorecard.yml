@@ -10,8 +10,8 @@ on:
 permissions: read-all
 
 concurrency:
-  group: scorecard-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: scorecard-${{ github.workflow }}-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   analysis:

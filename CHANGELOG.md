@@ -25,6 +25,8 @@
   excluded from cooldown and security updates remain immediate.
 - Isolated CodeQL and Scorecard concurrency by event so scheduled or manual
   analyses cannot cancel the exact `push` run consumed by auto-tag.
+- Isolated CI concurrency by immutable push SHA while retaining pull-request
+  cancellation, so every successful versioned `main` commit reaches auto-tag.
 
 ### Removed
 

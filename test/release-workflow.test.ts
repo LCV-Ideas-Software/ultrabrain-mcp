@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const autoTag = readFileSync(new URL("../.github/workflows/auto-tag.yml", import.meta.url), "utf8");
+const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 const codeql = readFileSync(new URL("../.github/workflows/codeql.yml", import.meta.url), "utf8");
 const publish = readFileSync(new URL("../.github/workflows/publish.yml", import.meta.url), "utf8");
 const scorecard = readFileSync(
@@ -154,6 +155,14 @@ describe("release workflow invariants", () => {
         "{{ github.event_name }}-$" +
         "{{ github.ref }}",
     );
+  });
+
+  it("preserves every main push CI run consumed by the release controller", () => {
+    expect(ci).toContain(
+      "$" + "{{ github.event_name }}-$" + "{{ github.event.pull_request.number || github.sha }}",
+    );
+    expect(ci).toContain("cancel-in-progress: $" + "{{ github.event_name == 'pull_request' }}");
+    expect(ci).not.toContain("github.event.pull_request.number || github.ref");
   });
 
   it("recognizes digest-less assets only after exact publish proof and byte verification", () => {

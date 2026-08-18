@@ -20,7 +20,7 @@
 
 **Install.** `npm install -g @lcv-ideas-software/ultrabrain-mcp` from npmjs.com, or `npm install -g @lcv-ideas-software/ultrabrain-mcp --registry=https://npm.pkg.github.com` from the GitHub Packages mirror.
 
-**Status.** Stable. Current release target: **v01.02.14** (npm package `1.2.14`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
+**Status.** Stable. Current release target: **v01.02.15** (npm package `1.2.15`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
 
 First publication started at **v01.00.00**. Public GitHub tags use the LCV display convention `v00.00.00`; npm keeps normal SemVer.
 
@@ -30,6 +30,7 @@ The version history at a glance:
 
 | Release     | Package  | Date       | Notes                                                                                                                                                                                                                                      |
 | ----------- | -------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `v01.02.15` | `1.2.15` | 18/08/2026 | Quarantines persisted sessions whose branch collections are malformed (values of `branches`/`merged_branches` validated at load) instead of crashing MCP server startup with a `TypeError` in `relinkBranches`.                            |
 | `v01.02.14` | `1.2.14` | 15/08/2026 | Delegates Trusted Publishing to the official npm client, removes the incompatible manual OIDC exchange probes, and waits for verified npmjs publication before writing to GitHub Packages.                                                 |
 | `v01.02.13` | `1.2.13` | 15/08/2026 | Tag-only fail-closed canary: adding npm's operation header to the manual exchange still returned `401`; no npmjs, GitHub Packages, or GitHub Release artifact was published.                                                               |
 | `v01.02.12` | `1.2.12` | 15/08/2026 | Tag-only fail-closed canary: the original manual Trusted Publisher preflight stopped before project code or artifact publication; superseded by the official-client recovery in `v01.02.14`.                                              |

@@ -4,8 +4,8 @@
  * a stale identity (the drift class found in the predecessor audit).
  */
 export const SERVER_NAME = "ultrabrain-mcp";
-export const SERVER_VERSION = "1.2.14";
-export const SERVER_RELEASE_DATE = "2026-08-15";
+export const SERVER_VERSION = "1.2.15";
+export const SERVER_RELEASE_DATE = "2026-08-18";
 export const SERVER_PUBLISHER = "LCV Ideas & Software";
 export const SERVER_HOMEPAGE = "https://ultrabrain-mcp.lcv.dev";
 export const SERVER_SPONSORS_URL = "https://www.lcv.dev/sponsor/?project=ultrabrain-mcp";

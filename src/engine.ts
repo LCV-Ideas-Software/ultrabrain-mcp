@@ -1257,10 +1257,21 @@ function isBrainSession(value: unknown): value is BrainSession {
     Array.isArray(candidate.tags) &&
     Array.isArray(candidate.thoughts) &&
     candidate.thoughts.every(isThoughtRecord) &&
+    // The two maps are validated down to their VALUES (#108): relinkBranches
+    // runs .map() on every branch collection outside the quarantine try, and
+    // later consumers flatMap/spread them — a non-array value (or an array in
+    // place of the map, which is also typeof "object") must be quarantined at
+    // load, never crash startup.
     Boolean(candidate.branches) &&
     typeof candidate.branches === "object" &&
+    !Array.isArray(candidate.branches) &&
+    Object.values(candidate.branches).every(
+      (records) => Array.isArray(records) && records.every(isThoughtRecord),
+    ) &&
     Boolean(candidate.merged_branches) &&
-    typeof candidate.merged_branches === "object"
+    typeof candidate.merged_branches === "object" &&
+    !Array.isArray(candidate.merged_branches) &&
+    Object.values(candidate.merged_branches).every((entry) => typeof entry === "string")
   );
 }
 

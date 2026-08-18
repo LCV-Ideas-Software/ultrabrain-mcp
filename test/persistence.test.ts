@@ -127,3 +127,49 @@ describe("persisted files remain valid JSON", () => {
     expect(() => JSON.parse(raw)).not.toThrow();
   });
 });
+
+describe("C3 (#108): malformed branch collections are quarantined, not fatal", () => {
+  const validBase = () => ({
+    id: "q",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    status: "active",
+    tags: [],
+    thoughts: [],
+    branches: {},
+    merged_branches: {},
+  });
+
+  it("quarantines a session whose branches map holds a non-array value (exact #108 repro)", () => {
+    const malformed = { ...validBase(), branches: { bad: {} } };
+    writeFileSync(join(dir, "q.json"), JSON.stringify(malformed), "utf8");
+
+    // The startup itself must not throw (before the fix: TypeError from relinkBranches).
+    const engine = new UltraBrainEngine({ persistence_dir: dir });
+    const status = engine.status("q") as { status: string };
+    expect(status.status).toBe("empty");
+    const files = readdirSync(dir);
+    expect(files.some((f) => f.startsWith("q.json.corrupt-"))).toBe(true);
+  });
+
+  it("rejects branches supplied as an array instead of a map", () => {
+    const malformed = { ...validBase(), branches: [] };
+    writeFileSync(join(dir, "q.json"), JSON.stringify(malformed), "utf8");
+    const engine = new UltraBrainEngine({ persistence_dir: dir });
+    expect((engine.status("q") as { status: string }).status).toBe("empty");
+  });
+
+  it("rejects a branch collection holding non-conforming thought records", () => {
+    const malformed = { ...validBase(), branches: { alt: [{ id: "x" }] } };
+    writeFileSync(join(dir, "q.json"), JSON.stringify(malformed), "utf8");
+    const engine = new UltraBrainEngine({ persistence_dir: dir });
+    expect((engine.status("q") as { status: string }).status).toBe("empty");
+  });
+
+  it("rejects merged_branches entries that are not strings", () => {
+    const malformed = { ...validBase(), merged_branches: { m: 42 } };
+    writeFileSync(join(dir, "q.json"), JSON.stringify(malformed), "utf8");
+    const engine = new UltraBrainEngine({ persistence_dir: dir });
+    expect((engine.status("q") as { status: string }).status).toBe("empty");
+  });
+});

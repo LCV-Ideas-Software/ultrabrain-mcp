@@ -2,6 +2,18 @@
 
 <!-- Release headings must use ISO dates (## x.y.z - YYYY-MM-DD); test/meta.test.ts enforces this on the head entry. -->
 
+## 1.2.15 - 2026-08-18
+
+### Fixed
+
+- Hardened `isBrainSession` so the persisted `branches`/`merged_branches` maps
+  are validated down to their values (arrays of conforming thought records and
+  strings respectively, and never an array in place of either map). A session
+  file holding a malformed branch collection is now quarantined as
+  `<file>.corrupt-<timestamp>` at load, instead of crashing MCP server startup
+  with `TypeError: records.map is not a function` inside `relinkBranches`
+  (#108).
+
 ## 1.2.14 - 2026-08-15
 
 ### Fixed

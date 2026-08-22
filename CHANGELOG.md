@@ -2,6 +2,23 @@
 
 <!-- Release headings must use ISO dates (## x.y.z - YYYY-MM-DD); test/meta.test.ts enforces this on the head entry. -->
 
+## Unreleased
+
+### Changed
+
+- Replaced the repository-owned Linear Release CLI download with the official
+  `linear/linear-release-action` v0.16.0, pinned by immutable action commit,
+  while preserving both best-effort boundaries required by the publication
+  controller.
+- Updated the workspace policy pointer to the single supported `cross-review`
+  name and documented the exemption for mechanical Action substitutions.
+
+### Security
+
+- Retained explicit disclosure that the official action downloads its CLI
+  without authenticating the asset bytes; upstream hardening remains tracked
+  in `linear/linear-release-action#59`.
+
 ## 1.2.15 - 2026-08-18
 
 ### Fixed

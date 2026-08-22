@@ -8,6 +8,15 @@ const formatPublic = readFileSync(
   new URL("../.github/workflows/format-public.yml", import.meta.url),
   "utf8",
 );
+const linearRelease = readFileSync(
+  new URL("../.github/workflows/linear-release.yml", import.meta.url),
+  "utf8",
+);
+const actionsLock = readFileSync(
+  new URL("../.github/workflows/actions.lock", import.meta.url),
+  "utf8",
+);
+const agents = readFileSync(new URL("../AGENTS.md", import.meta.url), "utf8");
 const publish = readFileSync(new URL("../.github/workflows/publish.yml", import.meta.url), "utf8");
 const scorecard = readFileSync(
   new URL("../.github/workflows/scorecard.yml", import.meta.url),
@@ -16,6 +25,32 @@ const scorecard = readFileSync(
 const zizmor = readFileSync(new URL("../.github/workflows/zizmor.yml", import.meta.url), "utf8");
 
 describe("release workflow invariants", () => {
+  it("uses the official Linear release action without weakening the best-effort writer", () => {
+    const officialAction = "linear/linear-release-action@0a25abab892a91062ebf42260dbb2ce6277aa205";
+    const linearAccessKey = "$" + "{{ secrets.LINEAR_ACCESS_KEY }}";
+
+    expect(linearRelease).toContain("name: Linear Release");
+    expect(linearRelease).toContain("push:");
+    expect(linearRelease).toContain("- main");
+    expect(linearRelease).toContain("environment: linear-release");
+    expect(linearRelease).toContain("fetch-depth: 0");
+    expect(linearRelease.match(/continue-on-error: true/g)).toHaveLength(2);
+    expect(linearRelease).toContain(`uses: ${officialAction} # v0.16.0`);
+    expect(linearRelease).toContain(`access_key: ${linearAccessKey}`);
+    expect(linearRelease).toContain("cli_version: v0.16.0");
+    expect(linearRelease).not.toMatch(/CLI_(?:URL|SHA256)|curl -fsSL|sha256sum/);
+
+    expect(actionsLock).toContain(`- '${officialAction}'`);
+    expect(actionsLock).toContain(`'${officialAction}':`);
+    expect(actionsLock).toContain("ref: 'v0.16.0'");
+  });
+
+  it("documents the single cross-review gate and the mechanical-change exemption", () => {
+    expect(agents).not.toMatch(/cross-review-v[12]/);
+    expect(agents).toContain("`cross-review`");
+    expect(agents).toContain("Trocas mecanicas de Actions");
+  });
+
   it("publishes explicit local tarball paths instead of npm git specifications", () => {
     expect(publish.match(/npm publish "\.\/artifacts\/\$PACKAGE_TARBALL"/g)).toHaveLength(2);
     expect(publish).not.toMatch(/npm publish "artifacts\/\$PACKAGE_TARBALL"/);

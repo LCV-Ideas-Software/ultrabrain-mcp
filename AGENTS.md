@@ -58,9 +58,10 @@ MCP client or a smoke harness; stdio MCP servers wait for protocol input.
 Follow the workspace-root `AGENTS.md` directives of the private workspace that
 hosts this checkout (not versioned in this public repository). In
 particular: no self-review in cross-review gates, `ultrabrain` plus
-`cross-review-v2` before substantive closure, `cross-review-v1` only as fallback
-for v2, `main` as the deployment branch, and Commit & Sync only after final
-audit when requested.
+`cross-review` before substantive closure, and `main` as the deployment branch.
+Trocas mecanicas de Actions dispensam `cross-review`; mudancas substantivas
+continuam sujeitas ao gate. Commit & Sync ocorre somente depois da auditoria
+final, quando solicitado.
 
 ## Registro de trabalho (GitHub Projects, Issues e Discussions)
 

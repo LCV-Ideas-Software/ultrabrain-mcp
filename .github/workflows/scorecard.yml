@@ -9,7 +9,7 @@ on:
   schedule:
     - cron: "37 8 * * 1"
 
-permissions: read-all
+permissions: read-all # zizmor: ignore[excessive-permissions] -- baseline oficial do OpenSSF Scorecard requer leitura global
 
 concurrency:
   group: scorecard-${{ github.workflow }}-${{ github.event_name }}-${{ github.sha }}

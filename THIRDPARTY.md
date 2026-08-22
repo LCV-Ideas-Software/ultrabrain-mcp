@@ -11,9 +11,12 @@ Bundled runtime component and build-only dependencies:
 
 Development dependencies:
 
+- `@biomejs/biome`, MIT OR Apache-2.0
 - `typescript`, Apache-2.0
 - `@types/node`, MIT
 - `prettier`, MIT
+- `vitest`, MIT
+- `yaml`, ISC
 
 See `package-lock.json` after installation for the full transitive dependency
 tree.

@@ -25,7 +25,7 @@ const scorecard = readFileSync(
 const zizmor = readFileSync(new URL("../.github/workflows/zizmor.yml", import.meta.url), "utf8");
 
 describe("release workflow invariants", () => {
-  it("uses the official Linear release action without weakening the best-effort writer", () => {
+  it("uses the official Linear release action with a full fail-closed queue", () => {
     const officialAction = "linear/linear-release-action@0a25abab892a91062ebf42260dbb2ce6277aa205";
     const linearAccessKey = "$" + "{{ secrets.LINEAR_ACCESS_KEY }}";
 
@@ -34,7 +34,9 @@ describe("release workflow invariants", () => {
     expect(linearRelease).toContain("- main");
     expect(linearRelease).toContain("environment: linear-release");
     expect(linearRelease).toContain("fetch-depth: 0");
-    expect(linearRelease.match(/continue-on-error: true/g)).toHaveLength(2);
+    expect(linearRelease).toContain("queue: max");
+    expect(linearRelease).not.toContain("cancel-in-progress:");
+    expect(linearRelease).not.toContain("continue-on-error:");
     expect(linearRelease).toContain(`uses: ${officialAction} # v0.16.0`);
     expect(linearRelease).toContain(`access_key: ${linearAccessKey}`);
     expect(linearRelease).toContain("cli_version: v0.16.0");

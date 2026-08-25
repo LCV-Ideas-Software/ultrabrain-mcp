@@ -17,7 +17,7 @@ discussions, commits, and public representation of the project.
 
 Reports can be sent privately to:
 
-**lcv@lcv.dev**
+**conductcode@lcv.dev**
 
 Reports will be acknowledged within 48 hours and handled according to the
 Contributor Covenant 3.0 enforcement ladder. Reporter identity will be kept

@@ -8,26 +8,18 @@ on:
 # Política enterprise (Discussion #150): sem write-all. Conjunto vazio no escopo do
 # workflow e grant mínimo declarado no job.
 permissions: {}
-# Agrupamento intencional: o CLI varre todos os commits desde a última release
-# (fetch-depth: 0). Se um run pendente for substituído por um push mais novo, os
-# commits dele embarcam na release do run seguinte — nada se perde; releases
-# agrupam pushes em rajada por desenho, e o grupo evita corrida entre duas
-# criações de release simultâneas.
+# Fila integral: o grupo serializa as criações de release e queue: max preserva
+# todos os runs pendentes suportados, sem substituir pushes intermediários.
 concurrency:
   group: linear-release-${{ github.ref }}
-  cancel-in-progress: false
+  queue: max
 jobs:
   linear_release:
     name: Linear Release
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Best-effort também no nível do job (issue #157): falha de checkout, rejeição
-    # do environment ou estouro do timeout não passam pelo continue-on-error do
-    # passo do CLI e deixariam o run vermelho — e o observed_failures do
-    # auto-tag.yml bloqueia tag/publicação para qualquer run de push não-verde do
-    # SHA. Com o job em continue-on-error o run conclui verde e a falha segue
-    # visível no job e nas anotações.
-    continue-on-error: true
+    # Fail-closed: falha de checkout, environment, timeout ou Linear Release
+    # deixa o run vermelho e impede que a divergência seja projetada como sucesso.
     # Política zizmor da casa: secret só é lido dentro de environment dedicado.
     # LINEAR_ACCESS_KEY vive como environment secret de linear-release — escopo
     # restrito a criar releases na pipeline deste repositório, nada além.
@@ -40,19 +32,12 @@ jobs:
           fetch-depth: 0 # histórico completo: o CLI varre commits desde a última release
           persist-credentials: false
 
-      # Best-effort por desenho: esta sincronização é um espelho opcional e sua
-      # falha (indisponibilidade, segredo expirado) NUNCA pode
-      # bloquear portões que varrem todos os runs do SHA (ex.: auto-tag/publicação).
-      # O run conclui verde e a falha fica visível na anotação do passo; commits
-      # não sincronizados embarcam na release seguinte.
-      #
       # Action oficial da Linear, pinada pelo SHA da release v0.16.0. O CLI fica
       # explicitamente selecionado na mesma versão. O instalador oficial ainda
       # baixa o CLI sem autenticação criptográfica dos bytes; essa lacuna upstream
       # está rastreada em linear/linear-release-action#59.
       - name: Create Linear release with the official action
         id: linear_release
-        continue-on-error: true
         uses: linear/linear-release-action@0a25abab892a91062ebf42260dbb2ce6277aa205 # v0.16.0
         with:
           access_key: ${{ secrets.LINEAR_ACCESS_KEY }}

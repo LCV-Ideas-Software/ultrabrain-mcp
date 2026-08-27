@@ -301,7 +301,7 @@ prerelease build from replacing the latest stable release.
 - Added real markdown rendering for `ultrabrain_merge` when `response_format` is `markdown`.
 - Added optional file-backed session persistence through `ULTRABRAIN_STATE_DIR` or `ULTRABRAIN_PERSIST_DIR`; default behavior remains process-local.
 - Expanded the MCP smoke test to cover persistence reloads, update payloads, depth validation, missing-reference errors, and markdown merge output.
-- Re-audited workflows against the LCV workspace baseline and StepSecurity Harden-Runner standard.
+- Re-audited workflows against the LCV Ideas & Software workspace baseline and StepSecurity Harden-Runner standard.
 
 ## 1.0.0 - 12/05/2026
 
@@ -311,5 +311,5 @@ prerelease build from replacing the latest stable release.
 - Added MCP prompts and resources for problem breakdown, critical review, synthesis, sessions, and templates.
 - Added clean en-US runtime messages, schema descriptions, warnings, suggestions, and bias checks.
 - Added research matrix documenting inspected reasoning-tool variants and the Ultrabrain implementation decisions.
-- Added LCV repository baseline: CI, Dependabot, Pages, publish workflow, release automation, StepSecurity Harden-Runner, README, site, changelog, notices, and sponsor links.
+- Added LCV Ideas & Software repository baseline: CI, Dependabot, Pages, publish workflow, release automation, StepSecurity Harden-Runner, README, site, changelog, notices, and sponsor links.
 - Verified that development checkout and global package installation are separate concerns; global installation must be a real package install, not a workspace junction.

@@ -5,7 +5,7 @@
 # ultrabrain-mcp
 
 <p align="center">
-  <strong>LCV's local MCP reasoning gate for structured engineering thought.</strong>
+  <strong>The local MCP reasoning gate from LCV Ideas &amp; Software for structured engineering thought.</strong>
 </p>
 
 <p align="center">
@@ -22,7 +22,7 @@
 
 **Status.** Stable. Current release target: **v01.02.15** (npm package `1.2.15`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
 
-First publication started at **v01.00.00**. Public GitHub tags use the LCV display convention `v00.00.00`; npm keeps normal SemVer.
+First publication started at **v01.00.00**. Public GitHub tags use the LCV Ideas & Software display convention `v00.00.00`; npm keeps normal SemVer.
 
 ## Change History
 
@@ -52,7 +52,7 @@ The version history at a glance:
 
 ## What It Does
 
-`ultrabrain-mcp` is an LCV-created MCP server for local, structured reasoning before engineering work is closed. It gives agents a single branded gate for:
+`ultrabrain-mcp` is an MCP server created by LCV Ideas & Software for local, structured reasoning before engineering work is closed. It gives agents a single branded gate for:
 
 - step-by-step reasoning with branches and revisions;
 - quality metrics, confidence, budget mode, and meta checkpoints;
@@ -109,7 +109,7 @@ The server does not call external LLM APIs. It is a local MCP reasoning scratchp
 
 ## MCP Configuration
 
-Global npm installation target in the LCV Windows environment:
+Global npm installation target in the Windows environment used by LCV Ideas & Software:
 
 ```text
 C:\npm-global\node_modules\@lcv-ideas-software\ultrabrain-mcp
@@ -145,7 +145,7 @@ The smoke test starts the built MCP server over stdio, lists tools, verifies the
 
 ## Release Automation
 
-This repository follows the LCV package baseline:
+This repository follows the LCV Ideas & Software package baseline:
 
 - CI runs on `main` pull requests and pushes.
 - Dependabot tracks npm and GitHub Actions updates.

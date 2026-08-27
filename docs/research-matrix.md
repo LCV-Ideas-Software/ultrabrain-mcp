@@ -3,10 +3,10 @@
 This matrix records the reasoning-tool variants inspected before the first
 LCV Ultrabrain MCP release.
 
-Ultrabrain is an LCV-created MCP server. The implementation imports ideas only
-at the architecture and product-design level. It does not copy third-party
-source code, public tool names, prompt text, localization strings, assets, or
-external model/API behavior.
+Ultrabrain is an MCP server created by LCV Ideas & Software. The implementation
+imports ideas only at the architecture and product-design level. It does not
+copy third-party source code, public tool names, prompt text, localization
+strings, assets, or external model/API behavior.
 
 ## Source Matrix
 

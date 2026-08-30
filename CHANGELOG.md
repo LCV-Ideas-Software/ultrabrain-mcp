@@ -13,6 +13,17 @@
 - Updated the workspace policy pointer to the single supported `cross-review`
   name and documented the exemption for mechanical Action substitutions.
 
+### Fixed
+
+- Wired distribution verification into npm's official `prepack` lifecycle
+  after the build, so a normal `npm pack` cannot produce a tarball when the
+  repository's distribution gate rejects its legal files.
+- Retired the hand-maintained dependency list from the npm tarball and its
+  Markdown parser. Repository inventory now remains with GitHub's native
+  Dependency Graph, License Compliance and SBOM export; the package continues
+  to carry the exact bundled-component license texts generated from esbuild's
+  metafile.
+
 ### Security
 
 - Adopted `linear/linear-release-action` v0.17.1, whose installer verifies the

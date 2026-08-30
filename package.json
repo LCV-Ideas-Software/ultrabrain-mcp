@@ -15,8 +15,7 @@
     "LICENSE",
     "NOTICE",
     "SECURITY.md",
-    "CHANGELOG.md",
-    "THIRDPARTY.md"
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/bundle-mcp-server.mjs",
@@ -32,7 +31,7 @@
     "format:public": "prettier --write \"site/index.html\"",
     "format:public:check": "prettier --check \"site/index.html\"",
     "start": "node dist/index.js",
-    "prepack": "npm run build",
+    "prepack": "npm run build && npm run verify:distribution",
     "prepublishOnly": "npm test"
   },
   "keywords": [

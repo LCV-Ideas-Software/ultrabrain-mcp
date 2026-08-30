@@ -1,28 +1,17 @@
-# Third-Party Notices
+# Third-Party Components
 
-Direct runtime dependencies:
+The authoritative repository dependency inventory is the GitHub Dependency
+Graph. GitHub can export that graph as an SPDX SBOM and applies the
+organization's native License Compliance policy to it. This file intentionally
+does not duplicate the graph as a hand-maintained Markdown list.
 
-- `zod`, MIT
+The npm package carries `dist/THIRD_PARTY_LICENSES.txt`, generated from the
+esbuild metafile and the installed license files for the exact components
+incorporated into the stdio bundle. `LICENSE` and `NOTICE` accompany it. This
+repository-only pointer is not included in the npm tarball.
 
-Bundled runtime component and build-only dependencies:
-
-- `@modelcontextprotocol/sdk`, MIT (reachable stdio subset is bundled)
-- `esbuild`, MIT (development only)
-
-Development dependencies:
-
-- `@biomejs/biome`, MIT OR Apache-2.0
-- `typescript`, Apache-2.0
-- `@types/node`, MIT
-- `prettier`, MIT
-- `vitest`, MIT
-- `yaml`, ISC
-
-See `package-lock.json` after installation for the full transitive dependency
-tree.
-
-The package build writes the complete license texts for the exact components
-incorporated into the stdio bundle to `dist/THIRD_PARTY_LICENSES.txt`.
+- Dependency Graph: https://github.com/LCV-Ideas-Software/ultrabrain-mcp/network/dependencies
+- GitHub SBOM documentation: https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/establish-provenance-and-integrity/export-dependencies-as-sbom
 
 Research-only references:
 

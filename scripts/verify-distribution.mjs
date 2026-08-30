@@ -11,21 +11,22 @@
 // O que este gate NAO confere, porque outros ja conferem a partir de fontes
 // melhores: os avisos dos componentes incorporados ao bundle stdio.
 // `scripts/bundle-mcp-server.mjs` deriva esse conjunto do metafile do esbuild
-// e lanca erro se qualquer pacote empacotado nao traz arquivo de licenca; e
-// `scripts/published-consumer-security-regression.mjs` (test:consumer) empacota
-// o tarball, instala-o num consumidor limpo e le dist/THIRD_PARTY_LICENSES.txt
-// do pacote INSTALADO. Repetir isso aqui seria uma terceira copia, mais fraca,
-// da mesma verificacao.
+// e lanca erro se qualquer pacote empacotado nao traz arquivo de licenca ou
+// traz um vazio; e `scripts/published-consumer-security-regression.mjs`
+// (test:consumer) empacota o tarball, instala-o num consumidor limpo e le
+// dist/THIRD_PARTY_LICENSES.txt do pacote INSTALADO. Repetir isso aqui seria
+// uma terceira copia, mais fraca, da mesma verificacao.
 //
 // Duas conferencias, ambas fecham em falha:
 //
 //   A. toda dependencia declarada no manifesto aparece no THIRDPARTY.md, uma
-//      vez so, com o MESMO rotulo de licenca que o lockfile registra para ela;
-//      a observacao entre parenteses, quando ha, e de vocabulario fechado e
-//      afirma um fato conferido contra o manifesto e contra o bundle; e toda
-//      linha de dependencia do THIRDPARTY.md corresponde a uma dependencia
-//      declarada;
-//   B. o que o `npm pack` de fato empacotaria traz os quatro arquivos legais.
+//      vez so, na secao certa, com o MESMO rotulo de licenca que o lockfile
+//      registra para ela; a observacao entre parenteses, quando ha, e de
+//      vocabulario fechado e afirma um fato conferido contra o manifesto e
+//      contra o bundle; e toda entrada de dependencia do THIRDPARTY.md
+//      corresponde a uma dependencia declarada;
+//   B. o que o `npm pack` de fato empacotaria traz os quatro arquivos legais,
+//      e nenhum deles esta vazio.
 //
 // Uso:
 //   node scripts/verify-distribution.mjs
@@ -45,17 +46,9 @@ const registrar = (titulo, itens) => {
 const manifesto = JSON.parse(readFileSync(resolve(RAIZ, "package.json"), "utf8"));
 const lockfile = JSON.parse(readFileSync(resolve(RAIZ, "package-lock.json"), "utf8"));
 const inventario = readFileSync(resolve(RAIZ, "THIRDPARTY.md"), "utf8");
-const linhasDoInventario = inventario.split(/\r?\n/u);
 
 // ------------------------------------------------------- A. inventario legal
 
-// As linhas de dependencia do inventario tem a forma "- `nome`, Rotulo" com uma
-// observacao opcional entre parenteses no fim. O rotulo NAO e extraido da
-// linha: ele e conferido contra a verdade conhecida — o campo `license` que o
-// npm registra no lockfile para cada dependencia. Comparar contra o valor
-// esperado dispensa qualquer regra para separar rotulo de observacao, e por
-// isso nao quebra em expressoes SPDX inteiramente parentizadas, como
-// "(MIT AND Zlib)", que sao forma real do registro npm.
 const declaradas = new Set([
   ...Object.keys(manifesto.dependencies || {}),
   ...Object.keys(manifesto.devDependencies || {}),
@@ -63,13 +56,12 @@ const declaradas = new Set([
   ...Object.keys(manifesto.peerDependencies || {}),
 ]);
 
-// A observacao entre parenteses nao e texto livre nem vocabulario solto: cada
-// forma aceita afirma um FATO, e o fato e conferido contra a fonte dele. Um
-// vocabulario sem amarra deixaria "(development only)" numa dependencia de
-// runtime, ou "(bundled)" numa que nunca entrou no bundle — rotulo certo,
-// leitura errada. Uma observacao nova entra aqui, com o seu predicado, antes de
-// entrar no inventario.
-//
+const soDesenvolvimento = (nome) =>
+  Object.hasOwn(manifesto.devDependencies || {}, nome) &&
+  !Object.hasOwn(manifesto.dependencies || {}, nome) &&
+  !Object.hasOwn(manifesto.optionalDependencies || {}, nome) &&
+  !Object.hasOwn(manifesto.peerDependencies || {}, nome);
+
 // "E empacotada" vem do arquivo de avisos que o bundler escreve a partir do
 // metafile do esbuild, no mesmo `npm test`, um passo antes deste. Sem esse
 // arquivo nao ha como conferir a afirmacao, e o gate para em vez de supor.
@@ -86,15 +78,13 @@ try {
   ]);
 }
 
-const soDesenvolvimento = (nome) =>
-  Object.hasOwn(manifesto.devDependencies || {}, nome) &&
-  !Object.hasOwn(manifesto.dependencies || {}, nome) &&
-  !Object.hasOwn(manifesto.optionalDependencies || {}, nome) &&
-  !Object.hasOwn(manifesto.peerDependencies || {}, nome);
-
-// Com o arquivo de avisos ausente, `empacotadasNoBundle` e null e as duas
-// comparacoes estritas abaixo dao falso: nenhuma observacao e aceita sem a
-// fonte que a confirma.
+// Nem a observacao entre parenteses nem a secao do inventario sao texto livre:
+// cada forma aceita afirma um FATO, e o fato e conferido contra a fonte dele —
+// o manifesto para "e de desenvolvimento" e "e de runtime", o bundle para "e
+// empacotada". Uma forma nova entra aqui, com o seu predicado, antes de entrar
+// no inventario. Com o arquivo de avisos ausente, `empacotadasNoBundle` e null
+// e as comparacoes estritas dao falso: nenhuma afirmacao sobre o bundle e
+// aceita sem a fonte que a confirma.
 const OBSERVACOES = new Map([
   [
     "(development only)",
@@ -106,48 +96,130 @@ const OBSERVACOES = new Map([
   ],
 ]);
 
+// A secao em que a entrada aparece tambem afirma algo, e uma entrada na secao
+// errada e uma classificacao falsa publicada — `zod` sob "Development
+// dependencies" passaria por dependencia de desenvolvimento. A secao mista
+// exige observacao, porque e ela que diz qual dos dois fatos vale ali.
+const SECOES = new Map([
+  [
+    "Direct runtime dependencies:",
+    { valida: (nome) => Object.hasOwn(manifesto.dependencies || {}, nome), exigeObservacao: false },
+  ],
+  [
+    "Bundled runtime component and build-only dependencies:",
+    { valida: (nome) => soDesenvolvimento(nome), exigeObservacao: true },
+  ],
+  [
+    "Development dependencies:",
+    {
+      valida: (nome) => soDesenvolvimento(nome) && empacotadasNoBundle?.has(nome) === false,
+      exigeObservacao: false,
+    },
+  ],
+]);
+
+// Um unico reconhecedor para toda entrada de dependencia, no sentido direto e
+// no inverso. Reconhecer a entrada por prefixo exato numa direcao e por regex
+// folgada na outra deixava passar uma duplicata escrita com dois espacos apos
+// o marcador: a contagem nao a via, e o sentido inverso a aceitava como
+// declarada. O rotulo continua NAO sendo extraido: `resto` e conferido inteiro
+// contra a verdade conhecida do lockfile.
+const ENTRADA = /^-\s+`([^`]+)`(.*)$/u;
+const CABECALHO = /^([^\s`-].*:)$/u;
+const entradas = [];
+let secaoAtual = null;
+for (const linha of inventario.split(/\r?\n/u)) {
+  const cabecalho = CABECALHO.exec(linha);
+  if (cabecalho) {
+    secaoAtual = cabecalho[1];
+    continue;
+  }
+  const entrada = ENTRADA.exec(linha);
+  if (entrada) entradas.push({ nome: entrada[1], resto: entrada[2], secao: secaoAtual });
+}
+const porNome = new Map();
+for (const e of entradas) {
+  if (!porNome.has(e.nome)) porNome.set(e.nome, []);
+  porNome.get(e.nome).push(e);
+}
+
 const semLockfile = [];
 const ausentesNoInventario = [];
+const duplicadas = [];
 const rotulosDivergentes = [];
 const observacoesFalsas = [];
-const duplicadas = [];
+const secoesErradas = [];
 for (const nome of [...declaradas].sort()) {
-  const entrada = lockfile.packages?.[`node_modules/${nome}`];
-  if (typeof entrada?.license !== "string" || !entrada.license.trim()) {
+  const registro = lockfile.packages?.[`node_modules/${nome}`];
+  if (typeof registro?.license !== "string" || !registro.license.trim()) {
     semLockfile.push(nome);
     continue;
   }
-  const licenca = entrada.license.trim();
-  const prefixo = `- \`${nome}\`, `;
-  const candidatas = linhasDoInventario.filter((l) => l.startsWith(prefixo));
-  if (candidatas.length === 0) {
+  const licenca = registro.license.trim();
+  const ocorrencias = porNome.get(nome) || [];
+  if (ocorrencias.length === 0) {
     ausentesNoInventario.push(`${nome} (lockfile: ${licenca})`);
     continue;
   }
-  if (candidatas.length > 1) {
+  if (ocorrencias.length > 1) {
     duplicadas.push(nome);
     continue;
   }
-  const restante = candidatas[0].slice(prefixo.length);
-  if (restante === licenca) continue;
-  if (!restante.startsWith(`${licenca} `)) {
-    rotulosDivergentes.push(`${nome}: inventario diz "${restante}", lockfile diz "${licenca}"`);
-    continue;
+  const { resto, secao } = ocorrencias[0];
+
+  // Rotulo: o resto da linha e ", <licenca>" ou ", <licenca> <observacao>".
+  let observacao = null;
+  if (resto !== `, ${licenca}`) {
+    if (!resto.startsWith(`, ${licenca} `)) {
+      rotulosDivergentes.push(
+        `${nome}: inventario diz "${resto.replace(/^,\s*/u, "")}", lockfile diz "${licenca}"`,
+      );
+      continue;
+    }
+    observacao = resto.slice(`, ${licenca} `.length);
+    const verdadeira = OBSERVACOES.get(observacao);
+    if (!verdadeira) {
+      rotulosDivergentes.push(
+        `${nome}: observacao "${observacao}" nao esta no vocabulario aceito (${[...OBSERVACOES.keys()].join(", ")})`,
+      );
+      continue;
+    }
+    if (!verdadeira(nome)) {
+      observacoesFalsas.push(
+        `${nome}: a observacao "${observacao}" nao corresponde ao que o manifesto e o bundle registram`,
+      );
+      continue;
+    }
   }
-  const observacao = restante.slice(licenca.length + 1);
-  const verdadeira = OBSERVACOES.get(observacao);
-  if (!verdadeira) {
-    rotulosDivergentes.push(
-      `${nome}: observacao "${observacao}" nao esta no vocabulario aceito (${[...OBSERVACOES.keys()].join(", ")})`,
+
+  // Secao: a entrada precisa estar sob um cabecalho conhecido cujo predicado
+  // seja verdadeiro para ela.
+  const regra = secao === null ? null : SECOES.get(secao);
+  if (!regra) {
+    secoesErradas.push(
+      `${nome}: esta sob "${secao ?? "(nenhum cabecalho)"}", que nao e uma secao de dependencias conhecida (${[...SECOES.keys()].map((s) => `"${s}"`).join(", ")})`,
     );
     continue;
   }
-  if (!verdadeira(nome)) {
-    observacoesFalsas.push(
-      `${nome}: a observacao "${observacao}" nao corresponde ao que o manifesto e o bundle registram`,
+  if (!regra.valida(nome)) {
+    secoesErradas.push(
+      `${nome}: esta sob "${secao}", e o manifesto e o bundle dizem que nao pertence a essa secao`,
+    );
+    continue;
+  }
+  if (regra.exigeObservacao && observacao === null) {
+    secoesErradas.push(
+      `${nome}: a secao "${secao}" exige uma observacao que diga qual dos dois casos se aplica`,
     );
   }
 }
+
+// Sentido inverso, com o MESMO reconhecedor de entrada. `Research-only
+// references` lista trabalhos consultados, nao dependencias, e nao usa a forma
+// de lista com crase — por isso nao entra aqui. Se um dia passar a usar, esta
+// conferencia acusa, e e melhor um falso positivo visivel do que uma linha
+// fantasma silenciosa.
+const inventariadasSemManifesto = [...porNome.keys()].filter((n) => !declaradas.has(n)).sort();
 
 if (semLockfile.length) {
   registrar(
@@ -162,7 +234,7 @@ if (ausentesNoInventario.length) {
   );
 }
 if (duplicadas.length) {
-  registrar("Dependencias com mais de uma linha no THIRDPARTY.md:", duplicadas);
+  registrar("Dependencias com mais de uma entrada no THIRDPARTY.md:", duplicadas);
 }
 if (rotulosDivergentes.length) {
   registrar(
@@ -176,16 +248,15 @@ if (observacoesFalsas.length) {
     observacoesFalsas,
   );
 }
-
-// Sentido inverso. `Research-only references` lista trabalhos consultados, nao
-// dependencias, e nao usa a forma de lista com crase — por isso nao entra aqui.
-// Se um dia passar a usar, esta conferencia acusa, e e melhor um falso positivo
-// visivel do que uma linha fantasma silenciosa.
-const nomesNoInventario = [...inventario.matchAll(/^-\s+`([^`]+)`/gmu)].map((m) => m[1]);
-const inventariadasSemManifesto = nomesNoInventario.filter((n) => !declaradas.has(n)).sort();
+if (secoesErradas.length) {
+  registrar(
+    "Entradas do THIRDPARTY.md na secao errada. A secao classifica o componente, e uma classificacao falsa e publicada junto com ele:",
+    secoesErradas,
+  );
+}
 if (inventariadasSemManifesto.length) {
   registrar(
-    "Linhas do THIRDPARTY.md sem dependencia correspondente no package.json. Um inventario que nomeia o que nao existe e tao errado quanto um que omite:",
+    "Entradas do THIRDPARTY.md sem dependencia correspondente no package.json. Um inventario que nomeia o que nao existe e tao errado quanto um que omite:",
     inventariadasSemManifesto,
   );
 }
@@ -194,7 +265,9 @@ if (inventariadasSemManifesto.length) {
 
 // O campo `files` diz a intencao; `npm pack` diz o resultado. Um `.npmignore`
 // ou um padrao mal escrito derruba um arquivo legal sem avisar, e o pacote sai
-// sem LICENSE. A conferencia e sobre a lista que o npm de fato empacotaria.
+// sem LICENSE. A conferencia e sobre a lista que o npm de fato empacotaria — e,
+// para cada arquivo listado, sobre o conteudo: um LICENSE de zero bytes chega
+// ao tarball com o mesmo nome e nenhum texto.
 // test:consumer ja prova que dist/THIRD_PARTY_LICENSES.txt chega ao pacote
 // instalado; os outros tres so sao provados aqui.
 const ARQUIVOS_LEGAIS = ["LICENSE", "NOTICE", "THIRDPARTY.md", "dist/THIRD_PARTY_LICENSES.txt"];
@@ -232,8 +305,8 @@ try {
   // versao do npm, e a falha seria de analise, nao de conteudo — barulho no
   // lugar de sinal.
   const analisado = JSON.parse(bruto);
-  const entradas = Array.isArray(analisado) ? analisado : Object.values(analisado);
-  const comArquivos = entradas.find((e) => Array.isArray(e?.files));
+  const entradasDoPack = Array.isArray(analisado) ? analisado : Object.values(analisado);
+  const comArquivos = entradasDoPack.find((e) => Array.isArray(e?.files));
   if (!comArquivos) {
     throw new Error("saida de `npm pack --json` sem lista de arquivos reconhecivel");
   }
@@ -250,6 +323,23 @@ if (empacotados) {
       ausentes,
     );
   }
+  const vazios = [];
+  for (const arquivo of ARQUIVOS_LEGAIS.filter((a) => empacotados.includes(a))) {
+    let conteudo = "";
+    try {
+      conteudo = readFileSync(resolve(RAIZ, arquivo), "utf8");
+    } catch (erro) {
+      vazios.push(`${arquivo}: ${erro.message}`);
+      continue;
+    }
+    if (!conteudo.trim()) vazios.push(`${arquivo}: existe e esta vazio`);
+  }
+  if (vazios.length) {
+    registrar(
+      "Arquivos legais que iriam no pacote sem conteudo. Um arquivo vazio com o nome certo nao e um aviso:",
+      vazios,
+    );
+  }
 }
 
 // ------------------------------------------------------------------ resultado
@@ -264,5 +354,5 @@ if (falhas.length) {
 }
 
 console.log(
-  `Artefato de distribuicao confere: ${declaradas.size} dependencias com nome e licenca conferidos contra o lockfile, ${ARQUIVOS_LEGAIS.length} arquivos legais empacotados.`,
+  `Artefato de distribuicao confere: ${declaradas.size} dependencias com nome, secao e licenca conferidos contra manifesto, lockfile e bundle; ${ARQUIVOS_LEGAIS.length} arquivos legais empacotados com conteudo.`,
 );

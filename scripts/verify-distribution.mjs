@@ -124,9 +124,19 @@ const SECOES = new Map([
 // o marcador: a contagem nao a via, e o sentido inverso a aceitava como
 // declarada. O rotulo continua NAO sendo extraido: `resto` e conferido inteiro
 // contra a verdade conhecida do lockfile.
-const ENTRADA = /^-\s+`([^`]+)`(.*)$/u;
-const CABECALHO = /^([^\s`-].*:)$/u;
+// Uma entrada tem UMA forma canonica: "- `nome`, ..." na coluna zero. O gate
+// nao interpreta Markdown — a diretriz da frota proibe parser de especificacao
+// escrito a mao, e cada rodada de revisao encontrava outra grafia equivalente
+// (`*` como marcador, dois espacos, indentacao). Em vez de normalizar, o gate
+// REPROVA qualquer linha que se pareca com entrada e nao esteja na forma
+// canonica, e qualquer linha fora da forma canonica que mencione uma
+// dependencia declarada entre crases. Fechar em falha sobre a forma e mais
+// simples e mais seguro do que tentar reconhecer todas as formas.
+const ENTRADA = /^- `([^`]+)`(.*)$/u;
+const PARECE_ENTRADA = /^\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+`/u;
+const CABECALHO = /^([^\s`>*+-].*:)$/u;
 const entradas = [];
+const formasNaoCanonicas = [];
 let secaoAtual = null;
 for (const linha of inventario.split(/\r?\n/u)) {
   const cabecalho = CABECALHO.exec(linha);
@@ -135,7 +145,30 @@ for (const linha of inventario.split(/\r?\n/u)) {
     continue;
   }
   const entrada = ENTRADA.exec(linha);
-  if (entrada) entradas.push({ nome: entrada[1], resto: entrada[2], secao: secaoAtual });
+  if (entrada) {
+    entradas.push({ nome: entrada[1], resto: entrada[2], secao: secaoAtual });
+    continue;
+  }
+  if (PARECE_ENTRADA.test(linha)) {
+    formasNaoCanonicas.push(
+      `linha com forma de entrada fora do canonico "- \`nome\`, ...": ${JSON.stringify(linha)}`,
+    );
+    continue;
+  }
+  const mencionadas = [...linha.matchAll(/`([^`]+)`/gu)]
+    .map((m) => m[1])
+    .filter((n) => declaradas.has(n));
+  if (mencionadas.length) {
+    formasNaoCanonicas.push(
+      `linha fora da forma canonica menciona dependencia declarada (${mencionadas.join(", ")}): ${JSON.stringify(linha)}`,
+    );
+  }
+}
+if (formasNaoCanonicas.length) {
+  registrar(
+    "Linhas do THIRDPARTY.md que se parecem com entrada de dependencia mas nao estao na forma canonica. O gate nao interpreta Markdown; a forma e uma so, e qualquer outra reprova:",
+    formasNaoCanonicas,
+  );
 }
 const porNome = new Map();
 for (const e of entradas) {

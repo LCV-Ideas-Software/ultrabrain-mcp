@@ -129,11 +129,14 @@ for (const bundled of bundledPackages.sort((a, b) =>
     "",
   );
   for (const licenseFile of bundled.licenseFiles) {
-    licenseSections.push(
-      `--- ${licenseFile} ---`,
-      (await readFile(path.join(bundled.directory, licenseFile), "utf8")).trim(),
-      "",
-    );
+    // A license file that exists but carries no text would pass the presence
+    // check above and ship an empty notice body under a real heading. The
+    // notice must reproduce the text, not merely name the file.
+    const licenseText = (await readFile(path.join(bundled.directory, licenseFile), "utf8")).trim();
+    if (licenseText.length === 0) {
+      throw new Error(`bundled package ${bundled.name} has an empty license file: ${licenseFile}`);
+    }
+    licenseSections.push(`--- ${licenseFile} ---`, licenseText, "");
   }
 }
 await mkdir(path.dirname(path.join(root, LICENSE_OUTPUT)), { recursive: true });

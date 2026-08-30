@@ -17,6 +17,24 @@ const npmToolchainAction = read(".github/actions/setup-npm-toolchain/action.yml"
 const packageJson = JSON.parse(read("package.json"));
 const packageLock = JSON.parse(read("package-lock.json"));
 
+assert.equal(
+  packageJson.scripts?.prepack,
+  "npm run build && npm run verify:distribution",
+  "npm pack must build first and then fail closed on distribution verification",
+);
+assert.equal(
+  packageJson.files?.includes("THIRDPARTY.md"),
+  false,
+  "the npm tarball must not publish a hand-maintained duplicate of GitHub's dependency graph",
+);
+for (const required of ["LICENSE", "NOTICE", "dist"]) {
+  assert.equal(
+    packageJson.files?.includes(required),
+    true,
+    `the npm tarball must include ${required}`,
+  );
+}
+
 const sameRepositoryToolchainAction = "$/.github/actions/setup-npm-toolchain";
 const legacyWorkspaceToolchainAction = "./.github/actions/setup-npm-toolchain";
 const maxWorkflowAliasCount = 100;

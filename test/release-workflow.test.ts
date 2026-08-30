@@ -26,7 +26,7 @@ const zizmor = readFileSync(new URL("../.github/workflows/zizmor.yml", import.me
 
 describe("release workflow invariants", () => {
   it("uses the official Linear release action with a full fail-closed queue", () => {
-    const officialAction = "linear/linear-release-action@0a25abab892a91062ebf42260dbb2ce6277aa205";
+    const officialAction = "linear/linear-release-action@3f31fcf14c110cc53579fcc3575a26d469c413b4";
     const linearAccessKey = "$" + "{{ secrets.LINEAR_ACCESS_KEY }}";
 
     expect(linearRelease).toContain("name: Linear Release");
@@ -37,14 +37,14 @@ describe("release workflow invariants", () => {
     expect(linearRelease).toContain("queue: max");
     expect(linearRelease).not.toContain("cancel-in-progress:");
     expect(linearRelease).not.toContain("continue-on-error:");
-    expect(linearRelease).toContain(`uses: ${officialAction} # v0.16.0`);
+    expect(linearRelease).toContain(`uses: ${officialAction} # v0.17.1`);
     expect(linearRelease).toContain(`access_key: ${linearAccessKey}`);
-    expect(linearRelease).toContain("cli_version: v0.16.0");
+    expect(linearRelease).toContain("cli_version: v0.17.1");
     expect(linearRelease).not.toMatch(/CLI_(?:URL|SHA256)|curl -fsSL|sha256sum/);
 
     expect(actionsLock).toContain(`- '${officialAction}'`);
     expect(actionsLock).toContain(`'${officialAction}':`);
-    expect(actionsLock).toContain("ref: 'v0.16.0'");
+    expect(actionsLock).toContain("ref: 'v0.17.1'");
   });
 
   it("documents the single cross-review gate and the mechanical-change exemption", () => {

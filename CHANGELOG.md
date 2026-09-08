@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## 1.2.16 - 2026-09-08
+
 ### Changed
 
 - Replaced the repository-owned Linear Release CLI download with the official
@@ -32,6 +34,9 @@
 
 ### Security
 
+- Updated transitive `qs` to 6.16.0 and its dependency subtree through the
+  official npm lockfile resolver, addressing GHSA-4mjr-xmp4-gh2g and
+  GHSA-x5fp-wj9c-mxmx without adding overrides or changing parent ranges.
 - Adopted `linear/linear-release-action` v0.17.2, whose installer verifies the
   downloaded CLI against a published SHA-256 checksum before executing it. This
   closes the artifact-authentication gap tracked in

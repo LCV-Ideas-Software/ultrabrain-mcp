@@ -2,21 +2,47 @@
 
 ## Supported status
 
-Latest supported source/release target: v01.02.16 for npm package 1.2.16. The current main branch is also supported for security fixes until the next release is published.
+As verified on 08/09/2026, the latest published and supported npm package is
+`1.2.15`, with GitHub Release `v01.02.15`. This source prepares
+`1.2.17` / `v01.02.17`; it has not been published. The earlier
+`v01.02.16` tag points to the failed publication attempt at `20738d8` and
+is preserved rather than moved or reused. The development branch remains the
+source for security fixes until the prepared release is published.
 
-The supported line retains the v01.02.09 security baseline and its
-SHA-512-verified npm 12.0.2 toolchain on Linux and Windows. Trusted Publishing
-credential acquisition is delegated exclusively to the official npm client by
-the immutable `npm publish` step inside `npm-production`; the repository does
-not reproduce npm's OIDC exchange with custom HTTP probes. The writer
-revalidates the protected tag, checkout, gate SHA and current-main ancestry
-immediately before publication. Unprivileged registry/provenance verification
-runs afterward without that environment, and GitHub Packages waits for that
-npmjs verification before its own write. The supported line also resolves the
-current Hono, `fast-uri` and PostCSS advisories, plus GHSA-mwp4-54f8-5fhr,
-GHSA-4xrf-jv44-h6hh and GHSA-22jq-vg5j-6vgg in `ip-address`, with 4.12.34,
-3.1.5, 8.5.25 and 10.4.0 respectively. Hono 4.12.34 includes the fix for
-GHSA-8j4g-w8fx-2239.
+## Automation and credentials
+
+The prepared native workflow has four publication jobs. A build job with
+`contents: read` packs the product through npm's normal lifecycle, retaining
+the bundled-component license texts and distribution verification. CI retains
+the clean-consumer tests. The npmjs writer uses official npm Trusted Publishing
+through OIDC in `npm-production`, without a long-lived npm publish token.
+GitHub Packages then publishes the same tarball using `GITHUB_TOKEN`.
+Only after both registry jobs succeed does GitHub CLI create the padded tag
+and GitHub Release with the run's `contents: write` permission.
+
+Registry writers do not check out source, install product dependencies or run
+product build scripts. Direct Actions use reviewed immutable pins; their
+upstream manifests still govern nested Actions. There is no administrative PAT
+publication gate, custom npm bootstrap or separate auto-tag controller.
+
+CI retains the product checks. CodeQL uses GitHub Default Setup; Dependency
+Review, Zizmor and Scorecard use official repository-local workflows. Dependabot
+checks npm and GitHub Actions weekly and arms GitHub's native auto-merge for its
+same-repository pull requests, including majors, subject to required checks.
+It uses the organization-level Dependabot secret `DEPENDABOT_AUTOMERGE_TOKEN`;
+this shared operator token is the accepted organization baseline, not a
+package-publication credential.
+
+Pages serves `site/` only from `main`. The official Linear Release integration
+remains separate from package publication and uses `LINEAR_ACCESS_KEY` in its
+`linear-release` environment. Repository security settings are managed
+separately; workflow changes do not provision or loosen those settings.
+
+A tag alone is not proof of publication. After an interrupted run, inspect any
+partial registry or Release writes before a native failed-job rerun. Recovery
+is best effort and does not provide an exactly-once guarantee. Historical
+release-recovery procedures are retained as archived evidence, not active
+publication machinery.
 
 ## Reporting a vulnerability
 

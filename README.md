@@ -12,7 +12,6 @@
   <a href="https://github.com/LCV-Ideas-Software/ultrabrain-mcp/releases"><img alt="release" src="https://img.shields.io/github/v/release/LCV-Ideas-Software/ultrabrain-mcp?sort=semver" /></a>
   <a href="https://www.npmjs.com/package/@lcv-ideas-software/ultrabrain-mcp"><img alt="npm" src="https://img.shields.io/npm/v/@lcv-ideas-software/ultrabrain-mcp.svg" /></a>
   <a href="https://github.com/LCV-Ideas-Software/ultrabrain-mcp/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/LCV-Ideas-Software/ultrabrain-mcp/actions/workflows/ci.yml/badge.svg" /></a>
-  <a href="https://github.com/LCV-Ideas-Software/ultrabrain-mcp/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/LCV-Ideas-Software/ultrabrain-mcp/actions/workflows/codeql.yml/badge.svg" /></a>
   <a href="https://github.com/LCV-Ideas-Software/ultrabrain-mcp/actions/workflows/publish.yml"><img alt="Publish" src="https://github.com/LCV-Ideas-Software/ultrabrain-mcp/actions/workflows/publish.yml/badge.svg" /></a>
   <a href="https://ultrabrain-mcp.lcv.dev"><img alt="site" src="https://img.shields.io/badge/site-ultrabrain--mcp.lcv.dev-0f766e.svg" /></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-green.svg" /></a>
@@ -20,7 +19,7 @@
 
 **Install.** `npm install -g @lcv-ideas-software/ultrabrain-mcp` from npmjs.com, or `npm install -g @lcv-ideas-software/ultrabrain-mcp --registry=https://npm.pkg.github.com` from the GitHub Packages mirror.
 
-**Status.** Stable. Current release target: **v01.02.16** (npm package `1.2.16`). See [CHANGELOG.md](./CHANGELOG.md) for the full release history.
+**Version.** This source describes **1.2.17 / v01.02.17**. Consult the [npm package](https://www.npmjs.com/package/@lcv-ideas-software/ultrabrain-mcp) and [GitHub Releases](https://github.com/LCV-Ideas-Software/ultrabrain-mcp/releases) for current publication status. The historical `v01.02.16` tag records a failed publication attempt and is preserved; a tag alone is not proof of a published package. See [CHANGELOG.md](./CHANGELOG.md) for the changes and recovery context.
 
 First publication started at **v01.00.00**. Public GitHub tags use the LCV Ideas & Software display convention `v00.00.00`; npm keeps normal SemVer.
 
@@ -30,7 +29,8 @@ The version history at a glance:
 
 | Release     | Package  | Date       | Notes                                                                                                                                                                                                                                      |
 | ----------- | -------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `v01.02.16` | `1.2.16` | 08/09/2026 | Updates transitive qs to 6.16.0, releases the native dependency-inventory and Linear Release integration changes, and restores workflow startup after Actions lockfile retirement. |
+| `v01.02.17` | `1.2.17` | 08/09/2026 | Native governance and four-job publication, retaining the MCP bundle, license notices and clean-consumer checks. See the registry and Releases links above for publication status. |
+| `v01.02.16` | `1.2.16` | 08/09/2026 | Failed publication attempt; its existing tag is preserved. Contains the qs update and earlier dependency-inventory and Linear Release changes, carried forward into the 1.2.17 source. |
 | `v01.02.15` | `1.2.15` | 18/08/2026 | Quarantines persisted sessions whose branch collections are malformed (values of `branches`/`merged_branches` validated at load) instead of crashing MCP server startup with a `TypeError` in `relinkBranches`.                            |
 | `v01.02.14` | `1.2.14` | 15/08/2026 | Delegates Trusted Publishing to the official npm client, removes the incompatible manual OIDC exchange probes, and waits for verified npmjs publication before writing to GitHub Packages.                                                 |
 | `v01.02.13` | `1.2.13` | 15/08/2026 | Tag-only fail-closed canary: adding npm's operation header to the manual exchange still returned `401`; no npmjs, GitHub Packages, or GitHub Release artifact was published.                                                               |
@@ -136,9 +136,10 @@ Optional local persistence can be enabled per host with `ULTRABRAIN_STATE_DIR` o
 ## Development
 
 ```sh
-npm install
-npm test
+npm ci --ignore-scripts --no-audit --no-fund
+npm run biome
 npm run format:public:check
+npm test
 npm pack --dry-run
 ```
 
@@ -146,14 +147,18 @@ The smoke test starts the built MCP server over stdio, lists tools, verifies the
 
 ## Release Automation
 
-This repository follows the LCV Ideas & Software package baseline:
+This source follows the native package-publication baseline:
 
-- CI runs on `main` pull requests and pushes.
-- Dependabot tracks npm and GitHub Actions updates.
-- Pages deploys the static site from `site/` using `ultrabrain-mcp.lcv.dev`.
-- Auto-tagging derives padded public tags from `package.json` version.
-- Publish workflow releases to npmjs.com, GitHub Packages, and GitHub Releases.
-- Third-party actions are pinned to reviewed immutable commit SHAs.
+- CI checks pull requests targeting `main` and pushes to `main`, retaining product tests, Biome, public-site formatting, bundle/license verification and clean-consumer coverage.
+- Dependabot checks npm and GitHub Actions weekly. Minor/patch updates are grouped; majors remain separate. GitHub native auto-merge is enabled for eligible same-repository Dependabot PRs, including majors, and waits for required checks.
+- CodeQL uses GitHub Default Setup. Dependency Review, Zizmor and Scorecard remain repository-local official workflows.
+- Pages builds `site/` on pull requests and deploys only from `main` to `ultrabrain-mcp.lcv.dev`.
+- `Publish` runs on a push to `main` touching `package.json` and publishes only when its version changed. A dependency-only manifest edit without a package-version bump is a no-op.
+- Four jobs run in order: a read-only build packs one tarball; npm publishes it through Trusted Publishing in `npm-production`; GitHub Packages publishes the same tarball using `GITHUB_TOKEN`; GitHub CLI creates the padded tag and GitHub Release last.
+- Registry publication jobs consume the uploaded tarball without checking out or building product code. There is no separate auto-tag workflow, administrative PAT gate or repository-owned npm bootstrap.
+- The official Linear Release integration remains separate from package publication. Direct third-party Actions stay pinned to reviewed immutable commit SHAs.
+
+An existing tag is not publication evidence: the release decision refuses to reuse it. For an interrupted run, inspect the registry and Release state before using GitHub's [re-run failed jobs](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs) command, `gh run rerun RUN_ID --failed`. Recovery is best effort, not an exactly-once guarantee; a failed job may already have completed an external write. The [historical recovery runbook](./docs/HISTORICAL_RELEASE_RECOVERY.md) is archived evidence, not the current publication procedure.
 
 ## Research
 

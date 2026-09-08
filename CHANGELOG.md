@@ -4,6 +4,53 @@
 
 ## Unreleased
 
+## 1.2.17 - 2026-09-08
+
+**Publication recovery context.** Before this reform, verification on
+08/09/2026 found npm latest and the latest GitHub Release at
+`1.2.15` / `v01.02.15`. The existing `v01.02.16` tag at `20738d8`
+records an earlier failed publication attempt and is preserved. This version
+advances to `1.2.17` instead of reusing that tag; the registry and GitHub
+Releases are the current publication records.
+
+### Changed
+
+- Adopted the native four-job publication pattern on version-changing
+  `package.json` pushes to `main`: a read-only build packs one tarball, npm
+  Trusted Publishing authorizes npmjs through OIDC in `npm-production`,
+  GitHub Packages mirrors the same tarball with `GITHUB_TOKEN`, and GitHub
+  CLI creates the padded tag and GitHub Release last.
+- Aligned Dependabot with weekly updates, seven-day cooldown, native rebasing,
+  minor/patch groups and separate major PRs. The canonical workflow arms native
+  auto-merge for all eligible Dependabot updates after required checks.
+- Aligned Pages, Dependency Review, Zizmor and Scorecard with the native
+  repository-local baseline. Pages builds on PRs and deploys only from
+  `main`; required PR workflows cover retargeted and ready-for-review events.
+- Kept public-site formatting in product CI and preserved the MCP build,
+  bundled-license notices, distribution verification and clean-consumer tests.
+  No runtime tool API or persisted-state behavior changes.
+- Documented operator approval before publishing implementation branches or
+  opening PRs, and native failed-job reruns as best-effort recovery rather
+  than an exactly-once publication guarantee.
+- Added the missing repository-local inbound rights document using the approved
+  cross-review policy, scoped to this repository; retained the other mandatory
+  governance and legal documents.
+
+### Fixed
+
+- Bound the final Release to the pushed commit through the native Git reference
+  API and `gh release create --verify-tag`. An existing tag is accepted only
+  when it already points directly to that commit; no tag is moved or deleted.
+- Kept packaged documentation valid before and after publication by linking to
+  the live registry and Releases instead of embedding a temporary status.
+
+### Removed
+
+- Removed the separate auto-tag controller, administrative PAT release gate,
+  repository-owned npm bootstrap and release-policy regression machinery.
+- Removed the advanced CodeQL workflow in favor of Default Setup and retired
+  the separate Public Format workflow without dropping its product check.
+
 ## 1.2.16 - 2026-09-08
 
 ### Changed

@@ -4,7 +4,6 @@ import { parse } from "yaml";
 
 const autoTag = readFileSync(new URL("../.github/workflows/auto-tag.yml", import.meta.url), "utf8");
 const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-const codeql = readFileSync(new URL("../.github/workflows/codeql.yml", import.meta.url), "utf8");
 const formatPublic = readFileSync(
   new URL("../.github/workflows/format-public.yml", import.meta.url),
   "utf8",
@@ -171,7 +170,13 @@ describe("release workflow invariants", () => {
     expect(autoTag).not.toContain("git ls-remote");
     expect(autoTag).toContain("/git/ref/tags/$" + "{encoded_tag}");
     expect(autoTag).toContain("required_gates=(");
-    expect(autoTag).toContain("$CODEQL_WORKFLOW_ID:.github/workflows/codeql.yml");
+    expect(autoTag).toContain("$CODEQL_WORKFLOW_ID:dynamic/github-code-scanning/codeql");
+    expect(autoTag).not.toContain("$CODEQL_WORKFLOW_ID:.github/workflows/codeql.yml");
+    expect(autoTag).toContain('--argjson codeql_workflow_id "$CODEQL_WORKFLOW_ID"');
+    expect(autoTag).toContain('.event == "push" or');
+    expect(autoTag).toContain('.event == "dynamic" and .workflow_id == $codeql_workflow_id');
+    expect(autoTag).toContain('.path == "dynamic/github-code-scanning/codeql"');
+    expect(autoTag).not.toContain("head_sha=$TARGET_SHA&event=push");
     expect(autoTag).toContain("$SCORECARD_WORKFLOW_ID:.github/workflows/scorecard.yml");
     expect(autoTag).toContain("$ZIZMOR_WORKFLOW_ID:.github/workflows/zizmor.yml");
     expect(autoTag).not.toMatch(/code-scanning\/analyses|application\/sarif\+json/);
@@ -186,7 +191,6 @@ describe("release workflow invariants", () => {
 
   it("keeps scheduled analyses out of the exact push-gate concurrency groups", () => {
     const eventScopedGroup = "$" + "{{ github.workflow }}-$" + "{{ github.event_name }}-";
-    expect(codeql).toContain(eventScopedGroup);
     expect(scorecard).toContain(eventScopedGroup);
   });
 
@@ -196,7 +200,7 @@ describe("release workflow invariants", () => {
     const pullRequestCancellation =
       "cancel-in-progress: $" + "{{ github.event_name == 'pull_request' }}";
 
-    for (const workflow of [ci, codeql, formatPublic, zizmor]) {
+    for (const workflow of [ci, formatPublic, zizmor]) {
       expect(workflow).toContain(exactShaGroup);
       expect(workflow).toContain(pullRequestCancellation);
       expect(workflow).not.toContain("github.event.pull_request.number || github.ref");

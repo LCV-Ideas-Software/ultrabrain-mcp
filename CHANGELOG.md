@@ -17,6 +17,9 @@
 
 ### Fixed
 
+- Kept the release gate's exact-SHA CodeQL verification compatible with GitHub
+  Default Setup's native dynamic workflow instead of requiring the disabled
+  advanced-setup workflow; unrelated dynamic jobs remain outside this gate.
 - Removed the stale GitHub Actions dependency lockfile and generated workflow
   headers that prevented startup after Dependabot updates; immutable action
   SHA pins and execution settings remain unchanged.

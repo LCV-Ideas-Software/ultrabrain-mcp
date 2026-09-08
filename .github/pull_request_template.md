@@ -6,7 +6,7 @@
 
 - [ ] Relevant local checks were run or the change is documentation/configuration only.
 - [ ] GitHub Actions changes use least-privilege permissions and immutable action SHAs.
-- [ ] Dependabot automation remains non-blocking for routine patch/minor updates.
+- [ ] Eligible Dependabot updates, including majors, retain native auto-merge subject to required checks.
 
 ## Security Notes
 

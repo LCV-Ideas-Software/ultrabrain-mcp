@@ -1,6 +1,6 @@
 {
   "name": "@lcv-ideas-software/ultrabrain-mcp",
-  "version": "1.2.16",
+  "version": "1.2.17",
   "description": "LCV-branded MCP reasoning gate for structured engineering thought, validation, and review readiness.",
   "type": "module",
   "main": "dist/index.js",
@@ -21,10 +21,9 @@
     "build": "tsc -p tsconfig.json && node scripts/bundle-mcp-server.mjs",
     "smoke": "node scripts/smoke.mjs",
     "test:unit": "vitest run",
-    "test:release-security": "node scripts/npm-publish-security-regression.mjs",
     "test:consumer": "node scripts/published-consumer-security-regression.mjs",
     "verify:distribution": "node scripts/verify-distribution.mjs",
-    "test": "npm run test:release-security && npm run build && npm run verify:distribution && npm run test:unit && npm run smoke && npm run test:consumer",
+    "test": "npm run build && npm run verify:distribution && npm run test:unit && npm run smoke && npm run test:consumer",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "biome": "biome check src scripts test vitest.config.ts",
     "biome:write": "biome check --write src scripts test vitest.config.ts",
@@ -63,8 +62,7 @@
     "esbuild": "^0.28.2",
     "prettier": "^3.8.3",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10",
-    "yaml": "2.9.0"
+    "vitest": "^4.1.10"
   },
   "overrides": {
     "express-rate-limit": {

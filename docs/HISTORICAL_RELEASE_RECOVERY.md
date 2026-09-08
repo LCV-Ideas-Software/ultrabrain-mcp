@@ -26,10 +26,10 @@ this runbook, and the `github-release-verify-v01.02.07.json` attestation fixture
 (SHA-256
 `a93d026c1ae79acc4a5ddb7102595e79da3cb1bdcc3877b0f0a25203f1ae7d29`)
 remain as audit evidence. The procedures below are archived and are no longer
-dispatchable from the repository. A small evidence test pins both retained
-fixture hashes and proves that neither the helper nor the live workflow has
-returned. No CodeQL path exclusion, alert dismissal, or source suppression is
-used.
+dispatchable from the repository. The governance reform retired the archive-hash
+test; the recorded digests and both non-executable fixtures remain unchanged as
+historical evidence. Neither the helper nor the live workflow is restored. No
+CodeQL path exclusion, alert dismissal, or source suppression is used.
 
 ## Archived runbook
 

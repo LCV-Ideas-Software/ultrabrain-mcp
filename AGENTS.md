@@ -39,9 +39,21 @@ MCP client or a smoke harness; stdio MCP servers wait for protocol input.
 ## Release and Publishing
 
 - Do not publish from the workstation.
-- `auto-tag.yml` creates the padded display tag (`v00.00.00`) from `package.json`.
-- The first public release is `v01.00.00` from npm package version `1.0.0`.
-- `publish.yml` publishes to npmjs.com and GitHub Packages, then creates the GitHub Release.
+- `publish.yml` runs on pushes to `main` touching `package.json`; only a changed
+  package version initiates publication. Dependency-only manifest edits do not.
+- Its four jobs build and pack once without publishing permissions, publish the
+  same tarball to npmjs.com through OIDC in `npm-production`, mirror it to GitHub
+  Packages with `GITHUB_TOKEN`, then create the padded tag and GitHub Release last.
+- The first public release was `v01.00.00` from npm package version `1.0.0`.
+  Current tags retain the padded display convention (`v00.00.00`); npm uses SemVer.
+- Do not restore auto-tagging, administrative PAT gates, release-policy engines
+  or a custom npm bootstrap. Retain product build, bundled-license verification
+  and clean-consumer tests; these are not retired governance controllers.
+- An existing tag does not prove publication succeeded. Check partial registry
+  writes before a native `gh run rerun RUN_ID --failed`; reruns are best effort,
+  not an exactly-once transaction. Do not move or recreate historical tags.
+- CodeQL uses Default Setup. Native Dependabot auto-merge, Dependency Review,
+  Zizmor, Scorecard and Linear Release follow the repository-local baseline.
 - GitHub Pages serves `site/` through the custom domain `ultrabrain-mcp.lcv.dev`.
 - Direct third-party `uses:` references in this repository's workflows must remain
   pinned to reviewed immutable commit SHAs. After the operator-directed retirement
@@ -62,9 +74,12 @@ Follow the workspace-root `AGENTS.md` directives of the private workspace that
 hosts this checkout (not versioned in this public repository). In
 particular: no self-review in cross-review gates, `ultrabrain` plus
 `cross-review` before substantive closure, and `main` as the deployment branch.
-Trocas mecanicas de Actions dispensam `cross-review`; mudancas substantivas
-continuam sujeitas ao gate. Commit & Sync ocorre somente depois da auditoria
-final, quando solicitado.
+Mechanical Action substitutions do not require `cross-review`; use it for
+complex substantive changes that justify independent review. Prepare and validate
+changes locally, present the diff and verification report, and obtain the
+operator's approval before committing, pushing or opening the implementation PR.
+Admission follows the operator's instructions and required checks. The native
+Dependabot auto-merge policy does not require a human review for dependency PRs.
 
 ## Registro de trabalho (GitHub Projects, Issues e Discussions)
 

@@ -263,4 +263,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.build.outputs.tag }}
-        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --generate-notes
+        run: |
+          set -euo pipefail
+          # --target only applies when the tag is absent. Create its exact ref
+          # first; an existing ref is valid only for this same pushed commit.
+          # Enterprise tag rules block force updates and deletion.
+          if ! gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref="refs/tags/$TAG" -f sha="$GITHUB_SHA"; then
+            tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha')"
+            if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+              echo "::error::Tag $TAG does not point to $GITHUB_SHA; refusing to create the Release."
+              exit 1
+            fi
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes

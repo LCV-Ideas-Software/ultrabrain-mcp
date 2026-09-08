@@ -6,11 +6,12 @@
 
 ## 1.2.17 - 2026-09-08
 
-**Prepared, not published.** At the 08/09/2026 verification, npm latest and the
-latest GitHub Release remain `1.2.15` / `v01.02.15`. The existing
-`v01.02.16` tag at `20738d8` records an earlier failed publication attempt
-and is preserved. The prepared version advances to `1.2.17` instead of
-reusing that tag; the earlier changelog entries remain historical records.
+**Publication recovery context.** Before this reform, verification on
+08/09/2026 found npm latest and the latest GitHub Release at
+`1.2.15` / `v01.02.15`. The existing `v01.02.16` tag at `20738d8`
+records an earlier failed publication attempt and is preserved. This version
+advances to `1.2.17` instead of reusing that tag; the registry and GitHub
+Releases are the current publication records.
 
 ### Changed
 
@@ -34,6 +35,14 @@ reusing that tag; the earlier changelog entries remain historical records.
 - Added the missing repository-local inbound rights document using the approved
   cross-review policy, scoped to this repository; retained the other mandatory
   governance and legal documents.
+
+### Fixed
+
+- Bound the final Release to the pushed commit through the native Git reference
+  API and `gh release create --verify-tag`. An existing tag is accepted only
+  when it already points directly to that commit; no tag is moved or deleted.
+- Kept packaged documentation valid before and after publication by linking to
+  the live registry and Releases instead of embedding a temporary status.
 
 ### Removed
 

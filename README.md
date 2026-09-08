@@ -19,7 +19,7 @@
 
 **Install.** `npm install -g @lcv-ideas-software/ultrabrain-mcp` from npmjs.com, or `npm install -g @lcv-ideas-software/ultrabrain-mcp --registry=https://npm.pkg.github.com` from the GitHub Packages mirror.
 
-**Status.** As verified on 08/09/2026, the latest published npm package and GitHub Release are **1.2.15 / v01.02.15**. This source prepares **1.2.17 / v01.02.17**; it is not yet published. The existing `v01.02.16` tag belongs to the failed earlier publication attempt and is not proof of a release. See [CHANGELOG.md](./CHANGELOG.md) for the release history and prepared changes.
+**Version.** This source describes **1.2.17 / v01.02.17**. Consult the [npm package](https://www.npmjs.com/package/@lcv-ideas-software/ultrabrain-mcp) and [GitHub Releases](https://github.com/LCV-Ideas-Software/ultrabrain-mcp/releases) for current publication status. The historical `v01.02.16` tag records a failed publication attempt and is preserved; a tag alone is not proof of a published package. See [CHANGELOG.md](./CHANGELOG.md) for the changes and recovery context.
 
 First publication started at **v01.00.00**. Public GitHub tags use the LCV Ideas & Software display convention `v00.00.00`; npm keeps normal SemVer.
 
@@ -29,8 +29,8 @@ The version history at a glance:
 
 | Release     | Package  | Date       | Notes                                                                                                                                                                                                                                      |
 | ----------- | -------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `v01.02.17` | `1.2.17` | 08/09/2026 | Prepared, not published: native governance and four-job publication, retaining the MCP bundle, license notices and clean-consumer checks. |
-| `v01.02.16` | `1.2.16` | 08/09/2026 | Failed publication attempt; its existing tag is preserved. Contains the qs update and earlier dependency-inventory and Linear Release changes, carried forward into the prepared 1.2.17 source. |
+| `v01.02.17` | `1.2.17` | 08/09/2026 | Native governance and four-job publication, retaining the MCP bundle, license notices and clean-consumer checks. See the registry and Releases links above for publication status. |
+| `v01.02.16` | `1.2.16` | 08/09/2026 | Failed publication attempt; its existing tag is preserved. Contains the qs update and earlier dependency-inventory and Linear Release changes, carried forward into the 1.2.17 source. |
 | `v01.02.15` | `1.2.15` | 18/08/2026 | Quarantines persisted sessions whose branch collections are malformed (values of `branches`/`merged_branches` validated at load) instead of crashing MCP server startup with a `TypeError` in `relinkBranches`.                            |
 | `v01.02.14` | `1.2.14` | 15/08/2026 | Delegates Trusted Publishing to the official npm client, removes the incompatible manual OIDC exchange probes, and waits for verified npmjs publication before writing to GitHub Packages.                                                 |
 | `v01.02.13` | `1.2.13` | 15/08/2026 | Tag-only fail-closed canary: adding npm's operation header to the manual exchange still returned `401`; no npmjs, GitHub Packages, or GitHub Release artifact was published.                                                               |
@@ -147,7 +147,7 @@ The smoke test starts the built MCP server over stdio, lists tools, verifies the
 
 ## Release Automation
 
-The prepared source follows the native package-publication baseline:
+This source follows the native package-publication baseline:
 
 - CI checks pull requests targeting `main` and pushes to `main`, retaining product tests, Biome, public-site formatting, bundle/license verification and clean-consumer coverage.
 - Dependabot checks npm and GitHub Actions weekly. Minor/patch updates are grouped; majors remain separate. GitHub native auto-merge is enabled for eligible same-repository Dependabot PRs, including majors, and waits for required checks.

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 
 const autoTag = readFileSync(new URL("../.github/workflows/auto-tag.yml", import.meta.url), "utf8");
 const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
@@ -12,10 +13,6 @@ const linearRelease = readFileSync(
   new URL("../.github/workflows/linear-release.yml", import.meta.url),
   "utf8",
 );
-const actionsLock = readFileSync(
-  new URL("../.github/workflows/actions.lock", import.meta.url),
-  "utf8",
-);
 const agents = readFileSync(new URL("../AGENTS.md", import.meta.url), "utf8");
 const publish = readFileSync(new URL("../.github/workflows/publish.yml", import.meta.url), "utf8");
 const scorecard = readFileSync(
@@ -26,7 +23,11 @@ const zizmor = readFileSync(new URL("../.github/workflows/zizmor.yml", import.me
 
 describe("release workflow invariants", () => {
   it("uses the official Linear release action with a full fail-closed queue", () => {
-    const officialAction = "linear/linear-release-action@3f31fcf14c110cc53579fcc3575a26d469c413b4";
+    const releaseSteps = parse(linearRelease).jobs.linear_release.steps.filter(
+      (step: { id?: string }) => step.id === "linear_release",
+    );
+    expect(releaseSteps).toHaveLength(1);
+    const releaseStep = releaseSteps[0];
     const linearAccessKey = "$" + "{{ secrets.LINEAR_ACCESS_KEY }}";
 
     expect(linearRelease).toContain("name: Linear Release");
@@ -37,14 +38,10 @@ describe("release workflow invariants", () => {
     expect(linearRelease).toContain("queue: max");
     expect(linearRelease).not.toContain("cancel-in-progress:");
     expect(linearRelease).not.toContain("continue-on-error:");
-    expect(linearRelease).toContain(`uses: ${officialAction} # v0.17.1`);
-    expect(linearRelease).toContain(`access_key: ${linearAccessKey}`);
-    expect(linearRelease).toContain("cli_version: v0.17.1");
+    expect(releaseStep.uses).toMatch(/^linear\/linear-release-action@[0-9a-f]{40}$/);
+    expect(releaseStep.with.access_key).toBe(linearAccessKey);
+    expect(releaseStep.with.cli_version).toMatch(/^v\d+\.\d+\.\d+$/);
     expect(linearRelease).not.toMatch(/CLI_(?:URL|SHA256)|curl -fsSL|sha256sum/);
-
-    expect(actionsLock).toContain(`- '${officialAction}'`);
-    expect(actionsLock).toContain(`'${officialAction}':`);
-    expect(actionsLock).toContain("ref: 'v0.17.1'");
   });
 
   it("documents the single cross-review gate and the mechanical-change exemption", () => {

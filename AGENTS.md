@@ -43,7 +43,10 @@ MCP client or a smoke harness; stdio MCP servers wait for protocol input.
 - The first public release is `v01.00.00` from npm package version `1.0.0`.
 - `publish.yml` publishes to npmjs.com and GitHub Packages, then creates the GitHub Release.
 - GitHub Pages serves `site/` through the custom domain `ultrabrain-mcp.lcv.dev`.
-- Third-party actions must remain pinned to reviewed immutable commit SHAs.
+- Direct third-party `uses:` references in this repository's workflows must remain
+  pinned to reviewed immutable commit SHAs. After the operator-directed retirement
+  of `actions.lock`, nested actions resolve according to the official upstream
+  action manifests; direct pins do not guarantee immutable transitive references.
 
 ## Security
 

@@ -15,6 +15,9 @@
 
 ### Fixed
 
+- Removed the stale GitHub Actions dependency lockfile and generated workflow
+  headers that prevented startup after Dependabot updates; immutable action
+  SHA pins and execution settings remain unchanged.
 - Kept the Linear Release workflow checks independent of individual Dependabot
   version bumps while retaining the official action's immutable commit pin and
   explicit CLI version requirements; removed the retired Actions lock coupling.

@@ -7,7 +7,7 @@
 ### Changed
 
 - Replaced the repository-owned Linear Release CLI download with the official
-  `linear/linear-release-action` v0.17.1, pinned by immutable action commit,
+  `linear/linear-release-action` v0.17.2, pinned by immutable action commit,
   while preserving both best-effort boundaries required by the publication
   controller.
 - Updated the workspace policy pointer to the single supported `cross-review`
@@ -15,6 +15,9 @@
 
 ### Fixed
 
+- Kept the Linear Release workflow checks independent of individual Dependabot
+  version bumps while retaining the official action's immutable commit pin and
+  explicit CLI version requirements; removed the retired Actions lock coupling.
 - Wired distribution verification into npm's official `prepack` lifecycle
   after the build, so a normal `npm pack` cannot produce a tarball when the
   repository's distribution gate rejects its legal files.
@@ -26,7 +29,7 @@
 
 ### Security
 
-- Adopted `linear/linear-release-action` v0.17.1, whose installer verifies the
+- Adopted `linear/linear-release-action` v0.17.2, whose installer verifies the
   downloaded CLI against a published SHA-256 checksum before executing it. This
   closes the artifact-authentication gap tracked in
   `linear/linear-release-action#59`, resolved upstream on 2026-08-26.

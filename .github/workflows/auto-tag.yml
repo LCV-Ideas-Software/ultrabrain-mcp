@@ -348,13 +348,13 @@ jobs:
           echo "complete=$complete" >> "$GITHUB_OUTPUT"
           echo "Release identity $VERSION -> $TAG targets $target_sha (canonical_exists=$canonical_exists complete=$complete)."
 
-      - name: Wait for exact-target always-on push gates
+      - name: Wait for exact-target push and native CodeQL gates
         if: steps.target.outputs.complete != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_SHA: ${{ steps.target.outputs.target_sha }}
           CI_WORKFLOW_ID: "275133464"
-          CODEQL_WORKFLOW_ID: "275518911"
+          CODEQL_WORKFLOW_ID: "275133501"
           FORMAT_WORKFLOW_ID: "275133467"
           SCORECARD_WORKFLOW_ID: "275133471"
         run: |
@@ -378,7 +378,7 @@ jobs:
 
           required_gates=(
             "$CI_WORKFLOW_ID:.github/workflows/ci.yml"
-            "$CODEQL_WORKFLOW_ID:.github/workflows/codeql.yml"
+            "$CODEQL_WORKFLOW_ID:dynamic/github-code-scanning/codeql"
             "$FORMAT_WORKFLOW_ID:.github/workflows/format-public.yml"
             "$SCORECARD_WORKFLOW_ID:.github/workflows/scorecard.yml"
             "$ZIZMOR_WORKFLOW_ID:.github/workflows/zizmor.yml"
@@ -401,9 +401,16 @@ jobs:
           gates_ready=false
           while [ "$SECONDS" -lt "$deadline" ]; do
             pages="$(gh api --method GET --paginate --slurp \
-              "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$TARGET_SHA&event=push&per_page=100")"
+              "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$TARGET_SHA&per_page=100")"
+            # Default Setup owns CodeQL's dynamic workflow. Keep other dynamic
+            # jobs and this auto-tag workflow_run outside the existing gates.
             runs="$(jq -ce --arg sha "$TARGET_SHA" \
-              '[.[].workflow_runs[] | select(.head_sha == $sha and .event == "push")]' \
+              --argjson codeql_workflow_id "$CODEQL_WORKFLOW_ID" \
+              '[.[].workflow_runs[] | select(.head_sha == $sha and (
+                .event == "push" or
+                (.event == "dynamic" and .workflow_id == $codeql_workflow_id and
+                 .path == "dynamic/github-code-scanning/codeql" and .head_branch == "main")
+              ))]' \
               <<<"$pages")"
 
             observed_failures="$(jq -c '[.[] | select(
@@ -446,12 +453,12 @@ jobs:
               gates_ready=true
               break
             fi
-            echo "Waiting for exact-target push gates (observed=$(jq 'length' <<<"$runs") pending=$pending_observed)."
+            echo "Waiting for exact-target push and native CodeQL gates (observed=$(jq 'length' <<<"$runs") pending=$pending_observed)."
             sleep 15
           done
 
           if [ "$gates_ready" != true ]; then
-            echo "::error::Timed out waiting for push gates at $TARGET_SHA."
+            echo "::error::Timed out waiting for push and native CodeQL gates at $TARGET_SHA."
             exit 1
           fi
 

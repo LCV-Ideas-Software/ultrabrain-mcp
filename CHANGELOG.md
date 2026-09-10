@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+### Changed
+
+- Update the official CodeQL Action to v4.38.0 and Zizmor Action to v0.6.4,
+  retaining full commit pins and the existing workflow behavior.
+
 ## 1.2.17 - 2026-09-08
 
 **Publication recovery context.** Before this reform, verification on

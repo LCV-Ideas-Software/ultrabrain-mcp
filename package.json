@@ -56,9 +56,9 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.15",
+    "@biomejs/biome": "^2.5.12",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.4.1",
     "esbuild": "^0.28.2",
     "prettier": "^3.8.3",
     "typescript": "^7.0.2",

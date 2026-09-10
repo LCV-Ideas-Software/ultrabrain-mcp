@@ -150,7 +150,7 @@ The smoke test starts the built MCP server over stdio, lists tools, verifies the
 This source follows the native package-publication baseline:
 
 - CI checks pull requests targeting `main` and pushes to `main`, retaining product tests, Biome, public-site formatting, bundle/license verification and clean-consumer coverage.
-- Dependabot checks npm and GitHub Actions weekly. Minor/patch updates are grouped; majors remain separate. GitHub native auto-merge is enabled for eligible same-repository Dependabot PRs, including majors, and waits for required checks.
+- Dependabot checks npm and GitHub Actions every day at 05h (UTC−03:00), including weekends. Minor/patch version updates are grouped; version-update majors remain separate. Security updates have their own group per ecosystem. GitHub native auto-merge is enabled for eligible same-repository Dependabot PRs, including majors, and waits for required checks.
 - CodeQL uses GitHub Default Setup. Dependency Review, Zizmor and Scorecard remain repository-local official workflows.
 - Pages builds `site/` on pull requests and deploys only from `main` to `ultrabrain-mcp.lcv.dev`.
 - `Publish` runs on a push to `main` touching `package.json` and publishes only when its version changed. A dependency-only manifest edit without a package-version bump is a no-op.

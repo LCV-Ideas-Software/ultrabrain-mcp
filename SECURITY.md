@@ -27,7 +27,7 @@ publication gate, custom npm bootstrap or separate auto-tag controller.
 
 CI retains the product checks. CodeQL uses GitHub Default Setup; Dependency
 Review, Zizmor and Scorecard use official repository-local workflows. Dependabot
-checks npm and GitHub Actions weekly and arms GitHub's native auto-merge for its
+checks npm and GitHub Actions every day at 05h (UTC−03:00), including weekends, and arms GitHub's native auto-merge for its
 same-repository pull requests, including majors, subject to required checks.
 It uses the organization-level Dependabot secret `DEPENDABOT_AUTOMERGE_TOKEN`;
 this shared operator token is the accepted organization baseline, not a
@@ -71,3 +71,9 @@ Out of scope: social engineering, physical attacks, denial-of-service testing wi
 ## Coordinated disclosure
 
 LCV Ideas & Software will triage reports privately, request clarification when needed, and coordinate remediation before public disclosure. Public disclosure should wait until a fix or mitigation is available, unless there is an immediate user-safety reason to do otherwise.
+
+Dependabot security fixes are grouped separately per supported ecosystem. A failing
+member can delay its group, so grouped pull requests require the same security,
+quality and compatibility checks as individual updates. The native schedule uses
+`cronjob: "0 5 * * *"` with `timezone: "Etc/GMT+3"`; GitHub may start queued work later.
+See the [official Dependabot options](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference).

@@ -11,6 +11,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const npmExecPath = process.env.npm_execpath;
 assert.ok(npmExecPath, "npm_execpath is required to run the published consumer gate");
 const registry = "https://registry.npmjs.org/";
+const auditAttempts = 3;
+const auditRetryDelayMs = 2000;
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "ultrabrain-consumer-"));
 const packDirectory = path.join(tempRoot, "pack");
 const consumerDirectory = path.join(tempRoot, "consumer");
@@ -43,6 +45,50 @@ function cleanEnv(extra = {}) {
       ([key, value]) => value !== undefined && !blockedInheritedNpmConfig.has(key.toLowerCase()),
     ),
   );
+}
+
+function parseAuditReport(stdout) {
+  if (typeof stdout !== "string" || stdout.trim() === "") {
+    return undefined;
+  }
+  try {
+    const report = JSON.parse(stdout);
+    return report?.metadata?.vulnerabilities === undefined ? undefined : report;
+  } catch {
+    return undefined;
+  }
+}
+
+async function auditReport(cwd) {
+  // npm audit exits non-zero both when it finds advisories, where stdout still
+  // carries the full report, and when the advisories endpoint is unreachable,
+  // where it only carries an error envelope. The first is a real regression; the
+  // second is a transient registry failure and must not fail the gate.
+  let lastError;
+  for (let attempt = 1; attempt <= auditAttempts; attempt += 1) {
+    let stdout;
+    try {
+      stdout = npmCommand(["audit", "--omit=dev", "--json"], { cwd });
+    } catch (error) {
+      const report = parseAuditReport(error.stdout);
+      if (report) {
+        return report;
+      }
+      lastError = error;
+      stdout = undefined;
+    }
+    if (stdout !== undefined) {
+      const report = parseAuditReport(stdout);
+      if (report) {
+        return report;
+      }
+      lastError = new Error(`npm audit returned an unusable report: ${stdout}`);
+    }
+    if (attempt < auditAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, attempt * auditRetryDelayMs));
+    }
+  }
+  throw lastError;
 }
 
 function forbiddenInstalledPackages(lock) {
@@ -111,11 +157,7 @@ try {
   );
   assert.deepEqual(forbiddenInstalledPackages(consumerLock), []);
 
-  const audit = JSON.parse(
-    npmCommand(["audit", "--omit=dev", "--json"], {
-      cwd: consumerDirectory,
-    }),
-  );
+  const audit = await auditReport(consumerDirectory);
   assert.equal(audit.metadata?.vulnerabilities?.total, 0);
 
   const licenses = await readFile(

@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Raise the existing scoped `express-rate-limit` override to `ip-address`
+  10.5.1 and regenerate the npm lockfile to address GHSA-2vr4-cq9g-pvrc.
+
 ### Changed
 
 - Update the official CodeQL Action to v4.38.0 and Zizmor Action to v0.6.4,

@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- Atualizado o Vitest para 5.0.3, que seleciona o `why-is-node-running` oficial 3.2.1 sem `stackback`; manifestos e lockfiles regenerados pelo npm.
+
 ### Fixed
 
 - Raise the scoped `express-rate-limit` override to `ip-address` 10.7.1

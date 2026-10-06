@@ -18,6 +18,10 @@
 
 ### Changed
 
+- Update the official Linear Release Action to v0.18.1 at its full commit SHA,
+  select the official CLI v0.18.0 explicitly and retain upstream checksum
+  verification (LCV-316).
+
 - Update the official CodeQL Action to v4.38.0 and Zizmor Action to v0.6.4,
   retaining full commit pins and the existing workflow behavior.
 

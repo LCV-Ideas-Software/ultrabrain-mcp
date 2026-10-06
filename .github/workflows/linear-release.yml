@@ -30,14 +30,14 @@ jobs:
           fetch-depth: 0 # histórico completo: o CLI varre commits desde a última release
           persist-credentials: false
 
-      # Action oficial da Linear, pinada ao commit da release v0.17.2, com a
+      # Action oficial da Linear, pinada ao commit da release v0.18.1, com a
       # versão do CLI selecionada explicitamente. Desde a v0.16.1 o instalador
       # verifica o CLI baixado contra um checksum SHA-256 publicado antes de
       # executá-lo, fechando a lacuna rastreada em
       # linear/linear-release-action#59.
       - name: Create Linear release with the official action
         id: linear_release
-        uses: linear/linear-release-action@d4af10092984f9bc6d5efa075b242bdf01333463 # v0.18.0
+        uses: linear/linear-release-action@30f9ae77461ec29f07fffe0c52edd1909bfbb6f5 # v0.18.1
         with:
           access_key: ${{ secrets.LINEAR_ACCESS_KEY }}
-          cli_version: v0.17.2
+          cli_version: v0.18.0

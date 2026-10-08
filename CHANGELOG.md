@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- Update the official CodeQL SARIF upload Action to v4.38.3 at its complete release commit SHA (LCV-336).
+
 - Update the official `actions/upload-artifact` to v7.0.2 and `actions/download-artifact` to v8.0.2 at complete commit SHAs (LCV-334).
 
 - Atualizado o Vitest para 5.0.3, que seleciona o `why-is-node-running` oficial 3.2.1 sem `stackback`; manifestos e lockfiles regenerados pelo npm.
@@ -24,7 +26,7 @@
   select the official CLI v0.18.0 explicitly and retain upstream checksum
   verification (LCV-316).
 
-- Update the official CodeQL Action to v4.38.0 and Zizmor Action to v0.6.4,
+- Update the official CodeQL Action to v4.38.3 and Zizmor Action to v0.6.4,
   retaining full commit pins and the existing workflow behavior.
 
 ## 1.2.17 - 2026-09-08
